@@ -157,7 +157,9 @@ pub struct WithBlock<'a> {
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
 pub struct Set<'a> {
     pub target: Expr<'a>,
-    pub expr: Expr<'a>,
+    pub expr: Option<Expr<'a>>,
+    pub body: Option<Vec<Stmt<'a>>>,
+    pub name: &'a str,
 }
 
 /// A block for inheritance elements.

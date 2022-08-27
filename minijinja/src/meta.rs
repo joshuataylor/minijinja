@@ -177,7 +177,14 @@ pub fn find_undeclared_variables(source: &str) -> Result<HashSet<String>, Error>
             }
             ast::Stmt::Set(stmt) => {
                 assign_nested(&stmt.target, state);
-                visit_expr(&stmt.expr, state);
+                if let Some(expr) = &stmt.expr {
+                    visit_expr(expr, state);
+                }
+                if let Some(body) = &stmt.body {
+                    state.push();
+                    body.iter().for_each(|x| walk(x, state));
+                    state.pop();
+                }
             }
             ast::Stmt::Block(stmt) => {
                 state.push();

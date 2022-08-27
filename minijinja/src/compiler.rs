@@ -21,11 +21,26 @@ enum PendingBlock {
     ScBool(Vec<usize>),
 }
 
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(PartialOrd, Ord, Eq, PartialEq, Hash, Clone)]
+pub enum BlockType {
+    SetBlock,
+    Block,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone)]
+pub struct Block<'source> {
+    pub block_type: BlockType,
+    pub instructions: Instructions<'source>,
+    pub children: Option<BTreeMap<&'source str, Block<'source>>>,
+}
+
 /// Provides a convenient interface to creating instructions for the VM.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
 pub struct Compiler<'source> {
     instructions: Instructions<'source>,
-    blocks: BTreeMap<&'source str, Instructions<'source>>,
+    blocks: BTreeMap<&'source str, Block<'source>>,
     pending_block: Vec<PendingBlock>,
     current_line: usize,
 }
@@ -265,9 +280,36 @@ impl<'source> Compiler<'source> {
                 self.add(Instruction::PopFrame);
             }
             ast::Stmt::Set(set) => {
-                self.set_location_from_span(set.span());
-                self.compile_expr(&set.expr)?;
-                self.compile_assignment(&set.target)?;
+                if let Some(expr) = &set.expr {
+                    self.set_location_from_span(set.span());
+                    self.compile_expr(expr)?;
+                    self.compile_assignment(&set.target)?;
+                } else if let Some(body) = &set.body {
+                    self.set_location_from_span(set.span());
+                    let mut sub_compiler =
+                        Compiler::new(self.instructions.name(), self.instructions.source());
+
+                    // Compile the statement independently of the current scope?
+                    for node in body {
+                        sub_compiler.compile_stmt(node)?;
+                    }
+
+                    let (instructions, blocks) = sub_compiler.finish();
+
+                    let children = match blocks.is_empty() {
+                        false => Some(blocks),
+                        true => None,
+                    };
+
+                    let block = Block {
+                        block_type: BlockType::SetBlock,
+                        instructions,
+                        children,
+                    };
+
+                    self.blocks.insert(set.name, block);
+                    self.add(Instruction::StoreLocalSet(set.name));
+                }
             }
             ast::Stmt::Block(block) => {
                 self.set_location_from_span(block.span());
@@ -280,7 +322,13 @@ impl<'source> Compiler<'source> {
 
                 let (instructions, blocks) = sub_compiler.finish();
                 self.blocks.extend(blocks.into_iter());
-                self.blocks.insert(block.name, instructions);
+                let blockf = Block {
+                    block_type: BlockType::Block,
+                    instructions,
+                    children: None,
+                };
+
+                self.blocks.insert(block.name, blockf);
                 self.add(Instruction::CallBlock(block.name));
             }
             ast::Stmt::Extends(extends) => {
@@ -483,7 +531,7 @@ impl<'source> Compiler<'source> {
         self,
     ) -> (
         Instructions<'source>,
-        BTreeMap<&'source str, Instructions<'source>>,
+        BTreeMap<&'source str, Block<'source>>,
     ) {
         assert!(self.pending_block.is_empty());
         (self.instructions, self.blocks)

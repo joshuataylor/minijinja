@@ -21,6 +21,9 @@ pub enum Instruction<'source> {
     /// Stores a variable (only possible in for loops)
     StoreLocal(&'source str),
 
+    /// Stores a variable (only possible in for loops)
+    StoreLocalSet(&'source str),
+
     /// Load a variable,
     Lookup(&'source str),
 
@@ -254,6 +257,7 @@ impl<'source> fmt::Debug for Instruction<'source> {
             Instruction::FastSuper => write!(f, "FAST_SUPER"),
             Instruction::FastRecurse => write!(f, "FAST_RECURSE"),
             Instruction::Nop => write!(f, "NOP"),
+            Instruction::StoreLocalSet(n) => write!(f, "STORE_LOCAL_SET (var {:?})", n),
         }
     }
 }
