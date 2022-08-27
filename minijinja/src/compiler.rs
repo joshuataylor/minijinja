@@ -11,6 +11,7 @@ use crate::value::Value;
 
 #[cfg(test)]
 use similar_asserts::assert_eq;
+use crate::ast::{Expr, Stmt};
 
 /// Represents an open block of code that does not yet have updated
 /// jump targets.
@@ -21,11 +22,27 @@ enum PendingBlock {
     ScBool(Vec<usize>),
 }
 
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(PartialOrd, Ord, Eq, PartialEq, Hash, Clone)]
+pub enum BlockType {
+    SetBlock,
+    Macro,
+    Block,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone)]
+pub struct Block<'source> {
+    pub block_type: BlockType,
+    pub instructions: Instructions<'source>,
+    pub children: Option<BTreeMap<&'source str, Block<'source>>>,
+}
+
 /// Provides a convenient interface to creating instructions for the VM.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
 pub struct Compiler<'source> {
     instructions: Instructions<'source>,
-    blocks: BTreeMap<&'source str, Instructions<'source>>,
+    blocks: BTreeMap<&'source str, Block<'source>>,
     pending_block: Vec<PendingBlock>,
     current_line: usize,
 }
@@ -265,9 +282,36 @@ impl<'source> Compiler<'source> {
                 self.add(Instruction::PopFrame);
             }
             ast::Stmt::Set(set) => {
-                self.set_location_from_span(set.span());
-                self.compile_expr(&set.expr)?;
-                self.compile_assignment(&set.target)?;
+                if let Some(expr) = &set.expr {
+                    self.set_location_from_span(set.span());
+                    self.compile_expr(expr)?;
+                    self.compile_assignment(&set.target)?;
+                } else if let Some(body) = &set.body {
+                    self.set_location_from_span(set.span());
+                    let mut sub_compiler =
+                        Compiler::new(self.instructions.name(), self.instructions.source());
+
+                    // Compile the statement independently of the current scope?
+                    for node in body {
+                        sub_compiler.compile_stmt(node)?;
+                    }
+
+                    let (instructions, blocks) = sub_compiler.finish();
+
+                    let children = match blocks.is_empty() {
+                        false => Some(blocks),
+                        true => None,
+                    };
+
+                    let block = Block {
+                        block_type: BlockType::SetBlock,
+                        instructions,
+                        children,
+                    };
+
+                    self.blocks.insert(set.name, block);
+                    self.add(Instruction::StoreLocal(set.name));
+                }
             }
             ast::Stmt::Block(block) => {
                 self.set_location_from_span(block.span());
@@ -280,7 +324,13 @@ impl<'source> Compiler<'source> {
 
                 let (instructions, blocks) = sub_compiler.finish();
                 self.blocks.extend(blocks.into_iter());
-                self.blocks.insert(block.name, instructions);
+                let blockf = Block {
+                    block_type: BlockType::Block,
+                    instructions,
+                    children: None,
+                };
+
+                self.blocks.insert(block.name, blockf);
                 self.add(Instruction::CallBlock(block.name));
             }
             ast::Stmt::Extends(extends) => {
@@ -311,6 +361,51 @@ impl<'source> Compiler<'source> {
                 self.add(Instruction::EndCapture);
                 self.compile_expr(&filter_block.filter)?;
                 self.add(Instruction::Emit);
+            }
+            Stmt::Macro(mc) => {
+                println!("mc is {:?}", mc);
+                self.set_location_from_span(mc.span());
+
+                // add the BTreeMap
+                let mut sub_compiler =
+                    Compiler::new(self.instructions.name(), self.instructions.source());
+
+                // Compile the statement independently of the current scope?
+                for node in &mc.body {
+                    sub_compiler.compile_stmt(node)?;
+                }
+
+                let (instructions, blocks) = sub_compiler.finish();
+                let children = match blocks.is_empty() {
+                    false => Some(blocks),
+                    true => None,
+                };
+
+                let block = Block {
+                    block_type: BlockType::Macro,
+                    instructions,
+                    children
+                };
+
+                // should we support macros of macros?
+                self.blocks.insert(mc.name, block);
+                // store the args with the macro
+                let mut args = Vec::new();
+
+                // self.add(Instruction::StoreMacro(mc.name));
+
+                for arg in &mc.args {
+                    // arg should be a var?
+                    match arg {
+                        Expr::Var(x) => {
+                            args.push(x.id);
+                        }
+                        _ => (),
+                    }
+                }
+                self.add(Instruction::StoreMacro(mc.name, args));
+
+                // self.add(Instruction::BuildList(mc.args.len()));
             }
         }
         Ok(())
@@ -433,11 +528,27 @@ impl<'source> Compiler<'source> {
                 self.set_location_from_span(c.span());
                 match c.identify_call() {
                     ast::CallType::Function(name) => {
-                        for arg in &c.args {
-                            self.compile_expr(arg)?;
+                        // If we have a macro, compile it and replace the call with the result.
+                        // This is a bit of a hack, but it's the easiest way to do this for now.
+                        let mut is_macro = false;
+                        if let Some(macro_def) = self.blocks.get(name) {
+                            // does the block match?
+                            if macro_def.block_type == BlockType::Macro {
+                                is_macro = true;
+                                for arg in &c.args {
+                                    self.compile_expr(arg)?;
+                                }
+
+                                self.add(Instruction::CallMacro(name));
+                            }
                         }
-                        self.add(Instruction::BuildList(c.args.len()));
-                        self.add(Instruction::CallFunction(name));
+                        if !is_macro {
+                            for arg in &c.args {
+                                self.compile_expr(arg)?;
+                            }
+                            self.add(Instruction::BuildList(c.args.len()));
+                            self.add(Instruction::CallFunction(name));
+                        }
                     }
                     ast::CallType::Block(name) => {
                         self.add(Instruction::BeginCapture);
@@ -483,7 +594,7 @@ impl<'source> Compiler<'source> {
         self,
     ) -> (
         Instructions<'source>,
-        BTreeMap<&'source str, Instructions<'source>>,
+        BTreeMap<&'source str, Block<'source>>,
     ) {
         assert!(self.pending_block.is_empty());
         (self.instructions, self.blocks)

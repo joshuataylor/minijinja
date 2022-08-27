@@ -21,6 +21,8 @@ pub enum Instruction<'source> {
     /// Stores a variable (only possible in for loops)
     StoreLocal(&'source str),
 
+    StoreMacro(&'source str, Vec<&'source str>),
+
     /// Load a variable,
     Lookup(&'source str),
 
@@ -117,6 +119,9 @@ pub enum Instruction<'source> {
     /// Starts a with block.
     PushWith,
 
+    /// Starts a macro block.
+    // PushMacro,
+
     /// Does a single loop iteration
     ///
     /// The argument is the jump target for when the loop
@@ -161,6 +166,9 @@ pub enum Instruction<'source> {
 
     /// Calls a global function
     CallFunction(&'source str),
+
+    /// Calls a macro that is in scope
+    CallMacro(&'source str),
 
     /// Calls a method
     CallMethod(&'source str),
@@ -254,6 +262,11 @@ impl<'source> fmt::Debug for Instruction<'source> {
             Instruction::FastSuper => write!(f, "FAST_SUPER"),
             Instruction::FastRecurse => write!(f, "FAST_RECURSE"),
             Instruction::Nop => write!(f, "NOP"),
+            Instruction::CallMacro(n) => write!(f, "CALL_MACRO (var {:?})", n),
+            Instruction::StoreMacro(x, _) => {
+                // let vars: Vec<String> = a.iter().map(|ax| ax.to_string()).collect();
+                write!(f, "STORE_MACRO (name {})", x)
+            }
         }
     }
 }
@@ -407,5 +420,5 @@ impl<'source> fmt::Debug for Instructions<'source> {
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn test_sizes() {
-    assert_eq!(std::mem::size_of::<Instruction>(), 32);
+    assert_eq!(std::mem::size_of::<Instruction>(), 48);
 }

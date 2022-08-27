@@ -547,6 +547,10 @@ impl<'a> Parser<'a> {
                 self.parse_with_block()?,
                 self.stream.expand_span(span),
             ))),
+            Token::Ident("macro") => Ok(ast::Stmt::Macro(Spanned::new(
+                self.parse_macro()?,
+                self.stream.expand_span(span),
+            ))),
             Token::Ident("set") => Ok(ast::Stmt::Set(Spanned::new(
                 self.parse_set()?,
                 self.stream.expand_span(span),
@@ -722,19 +726,88 @@ impl<'a> Parser<'a> {
         Ok(ast::WithBlock { assignments, body })
     }
 
+    fn parse_macro(&mut self) -> Result<ast::Macro<'a>, Error> {
+        // @todo figure out if this is the right thing to do, i think it is.
+        // we don't need to check it first, as it should be a macro, and if it's not, it's an error anyway.
+        let (name, _span) = expect_token!(self, Token::Ident(name) => name, "identifier")?;
+        let args = self.parse_args()?;
+
+        match self.stream.next()? {
+            Some((token, _span)) if matches!(token, Token::BlockEnd(_)) => {
+                let body = self.subparse(&|tok| matches!(tok, Token::Ident("endmacro")))?;
+                self.stream.next()?;
+                Ok(ast::Macro {
+                    args,
+                    body,
+                    name,
+                })
+            }
+            Some((token, _)) => Err(Error::new(
+                ErrorKind::SyntaxError,
+                format!("unexpected {}, expected {}", token, "assignment operator"),
+            )),
+            None => Err(Error::new(
+                ErrorKind::SyntaxError,
+                format!(
+                    "unexpected end of input, expected {}",
+                    "assignment operator"
+                ),
+            )),
+        }
+    }
+
     fn parse_set(&mut self) -> Result<ast::Set<'a>, Error> {
+        let mut set_name = ""; // this is stupid
         let target = if matches!(self.stream.current()?, Some((Token::ParenOpen, _))) {
             self.stream.next()?;
             let assign = self.parse_assignment()?;
             expect_token!(self, Token::ParenClose, "`)`")?;
             assign
         } else {
-            self.parse_assign_name()?
+            let (id, span) = expect_token!(self, Token::Ident(name) => name, "identifier")?;
+            if RESERVED_NAMES.contains(&id) {
+                syntax_error!("cannot assign to reserved variable name {}", id);
+            }
+            let assigned = ast::Expr::Var(ast::Spanned::new(ast::Var { id }, span));
+            set_name = id;
+            assigned
         };
-        expect_token!(self, Token::Assign, "assignment operator")?;
-        let expr = self.parse_expr()?;
 
-        Ok(ast::Set { target, expr })
+        match self.stream.next()? {
+            Some((token, _span)) if matches!(token, Token::Assign) => {
+                let expr = self.parse_expr()?;
+                Ok(ast::Set {
+                    target,
+                    expr: Some(expr),
+                    body: None,
+                    name: set_name,
+                })
+            }
+            Some((token, _span)) if matches!(token, Token::BlockEnd(_)) => {
+                // We know that it's a statement (or series of statements), so we can parse it
+                // println!("parsing statement {:#?}", self.stream.next());
+                let body = self.subparse(&|tok| matches!(tok, Token::Ident("endset")))?;
+                self.stream.next()?;
+
+                Ok(ast::Set {
+                    target,
+                    expr: None,
+                    body: Some(body),
+                    name: set_name,
+                })
+            }
+            Some((token, _)) => Err(Error::new(
+                ErrorKind::SyntaxError,
+                format!("unexpected {}, expected {}", token, "assignment operator"),
+            )),
+            None => Err(Error::new(
+                ErrorKind::SyntaxError,
+                format!(
+                    "unexpected end of input, expected {}",
+                    "assignment operator"
+                ),
+            )),
+        }
     }
 
     fn parse_block(&mut self) -> Result<ast::Block<'a>, Error> {

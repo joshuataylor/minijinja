@@ -177,7 +177,14 @@ pub fn find_undeclared_variables(source: &str) -> Result<HashSet<String>, Error>
             }
             ast::Stmt::Set(stmt) => {
                 assign_nested(&stmt.target, state);
-                visit_expr(&stmt.expr, state);
+                if let Some(expr) = &stmt.expr {
+                    visit_expr(expr, state);
+                }
+                if let Some(body) = &stmt.body {
+                    state.push();
+                    body.iter().for_each(|x| walk(x, state));
+                    state.pop();
+                }
             }
             ast::Stmt::Block(stmt) => {
                 state.push();
@@ -193,6 +200,11 @@ pub fn find_undeclared_variables(source: &str) -> Result<HashSet<String>, Error>
             ast::Stmt::FilterBlock(stmt) => {
                 state.push();
                 stmt.body.iter().for_each(|x| walk(x, state));
+                state.pop();
+            }
+            ast::Stmt::Macro(mc) => {
+                state.push();
+                mc.body.iter().for_each(|x| walk(x, state));
                 state.pop();
             }
         }
@@ -257,6 +269,7 @@ pub fn find_referenced_templates(source: &str) -> Result<HashSet<String>, Error>
             ast::Stmt::Include(stmt) => record_reference(&stmt.name, out),
             ast::Stmt::AutoEscape(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
             ast::Stmt::FilterBlock(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
+            ast::Stmt::Macro(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
         }
     }
 

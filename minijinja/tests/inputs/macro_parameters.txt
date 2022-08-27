@@ -1,0 +1,5 @@
+{}
+---
+{% macro not_called(word) %}
+    hidden
+{% endmacro %}

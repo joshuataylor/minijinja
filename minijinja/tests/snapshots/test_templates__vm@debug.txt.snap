@@ -6,6 +6,7 @@ input_file: minijinja/tests/inputs/debug.txt
 State {
     name: "debug.txt",
     current_block: None,
+    current_block_type: None,
     auto_escape: None,
     ctx: {
         "x": 0,

@@ -3,7 +3,7 @@ use std::fmt;
 
 use serde::Serialize;
 
-use crate::compiler::Compiler;
+use crate::compiler::{Block, Compiler};
 use crate::error::Error;
 use crate::instructions::Instructions;
 use crate::parser::{parse, parse_expr};
@@ -46,7 +46,7 @@ impl<'env> fmt::Debug for Template<'env> {
 #[derive(Clone)]
 pub(crate) struct CompiledTemplate<'source> {
     instructions: Instructions<'source>,
-    blocks: BTreeMap<&'source str, Instructions<'source>>,
+    blocks: BTreeMap<&'source str, Block<'source>>,
 }
 
 impl<'env> fmt::Debug for CompiledTemplate<'env> {
@@ -99,8 +99,8 @@ impl<'source> CompiledTemplate<'source> {
         compiler.compile_stmt(&ast)?;
         let (instructions, blocks) = compiler.finish();
         Ok(CompiledTemplate {
-            blocks,
             instructions,
+            blocks,
         })
     }
 }
@@ -148,7 +148,7 @@ impl<'env> Template<'env> {
     }
 
     /// Returns the blocks.
-    pub(crate) fn blocks(&self) -> &'env BTreeMap<&'env str, Instructions<'env>> {
+    pub(crate) fn blocks(&self) -> &'env BTreeMap<&'env str, Block<'env>> {
         &self.compiled.blocks
     }
 
