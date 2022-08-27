@@ -729,7 +729,7 @@ impl<'a> Parser<'a> {
     fn parse_macro(&mut self) -> Result<ast::Macro<'a>, Error> {
         // @todo figure out if this is the right thing to do, i think it is.
         // we don't need to check it first, as it should be a macro, and if it's not, it's an error anyway.
-        let (name, span) = expect_token!(self, Token::Ident(name) => name, "identifier")?;
+        let (name, _span) = expect_token!(self, Token::Ident(name) => name, "identifier")?;
         let args = self.parse_args()?;
 
         match self.stream.next()? {

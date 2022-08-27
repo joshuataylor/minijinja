@@ -301,3 +301,16 @@ fn test_unpacking() {
     simple_eval(&c.finish().0, (), &mut output).unwrap();
     assert_eq!(output, "foobar");
 }
+
+#[test]
+fn test_macro_parameters() {
+    let mut c = Compiler::new("<unkown>", "");
+    // c.add(Instruction::LoadConst(Value::from(vec!["bar", "foo"])));
+    // c.add(Instruction::UnpackList(2));
+    // c.add(Instruction::StringConcat);
+    // c.add(Instruction::Emit);
+    //
+    // let mut output = String::new();
+    // simple_eval(&c.finish().0, (), &mut output).unwrap();
+    // assert_eq!(output, "foobar");
+}

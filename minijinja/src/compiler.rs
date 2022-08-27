@@ -11,7 +11,7 @@ use crate::value::Value;
 
 #[cfg(test)]
 use similar_asserts::assert_eq;
-use crate::ast::Stmt;
+use crate::ast::{Expr, Stmt};
 
 /// Represents an open block of code that does not yet have updated
 /// jump targets.
@@ -310,7 +310,7 @@ impl<'source> Compiler<'source> {
                     };
 
                     self.blocks.insert(set.name, block);
-                    self.add(Instruction::StoreLocalSet(set.name));
+                    self.add(Instruction::StoreLocal(set.name));
                 }
             }
             ast::Stmt::Block(block) => {
@@ -363,11 +363,8 @@ impl<'source> Compiler<'source> {
                 self.add(Instruction::Emit);
             }
             Stmt::Macro(mc) => {
+                println!("mc is {:?}", mc);
                 self.set_location_from_span(mc.span());
-
-                if !mc.args.is_empty() {
-                    self.add(Instruction::PushMacro);
-                }
 
                 // add the BTreeMap
                 let mut sub_compiler =
@@ -379,15 +376,36 @@ impl<'source> Compiler<'source> {
                 }
 
                 let (instructions, blocks) = sub_compiler.finish();
+                let children = match blocks.is_empty() {
+                    false => Some(blocks),
+                    true => None,
+                };
 
                 let block = Block {
                     block_type: BlockType::Macro,
                     instructions,
-                    children: None // @todo add children later? macro of macros? macro of macro of macros?
+                    children
                 };
 
                 // should we support macros of macros?
                 self.blocks.insert(mc.name, block);
+                // store the args with the macro
+                let mut args = Vec::new();
+
+                // self.add(Instruction::StoreMacro(mc.name));
+
+                for arg in &mc.args {
+                    // arg should be a var?
+                    match arg {
+                        Expr::Var(x) => {
+                            args.push(x.id);
+                        }
+                        _ => (),
+                    }
+                }
+                self.add(Instruction::StoreMacro(mc.name, args));
+
+                // self.add(Instruction::BuildList(mc.args.len()));
             }
         }
         Ok(())
@@ -510,11 +528,27 @@ impl<'source> Compiler<'source> {
                 self.set_location_from_span(c.span());
                 match c.identify_call() {
                     ast::CallType::Function(name) => {
-                        for arg in &c.args {
-                            self.compile_expr(arg)?;
+                        // If we have a macro, compile it and replace the call with the result.
+                        // This is a bit of a hack, but it's the easiest way to do this for now.
+                        let mut is_macro = false;
+                        if let Some(macro_def) = self.blocks.get(name) {
+                            // does the block match?
+                            if macro_def.block_type == BlockType::Macro {
+                                is_macro = true;
+                                for arg in &c.args {
+                                    self.compile_expr(arg)?;
+                                }
+
+                                self.add(Instruction::CallMacro(name));
+                            }
                         }
-                        self.add(Instruction::BuildList(c.args.len()));
-                        self.add(Instruction::CallFunction(name));
+                        if !is_macro {
+                            for arg in &c.args {
+                                self.compile_expr(arg)?;
+                            }
+                            self.add(Instruction::BuildList(c.args.len()));
+                            self.add(Instruction::CallFunction(name));
+                        }
                     }
                     ast::CallType::Block(name) => {
                         self.add(Instruction::BeginCapture);

@@ -1,0 +1,6 @@
+{}
+---
+{% macro go() %}
+    hello world
+{% endmacro %}
+{{go()}}

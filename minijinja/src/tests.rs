@@ -209,6 +209,7 @@ mod builtins {
             auto_escape: crate::AutoEscape::None,
             current_block: None,
             name: "<unknown>",
+            current_block_type: None
         };
         let bx = BoxedTest::new(test);
         assert!(bx

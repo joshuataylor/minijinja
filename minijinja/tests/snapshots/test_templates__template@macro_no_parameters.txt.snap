@@ -1,0 +1,10 @@
+---
+source: minijinja/tests/test_templates.rs
+expression: "&rendered"
+input_file: minijinja/tests/inputs/macro_no_parameters.txt
+---
+
+
+    hello world
+
+

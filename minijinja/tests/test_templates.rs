@@ -6,7 +6,7 @@ use minijinja::{context, Environment, Error, State};
 use similar_asserts::assert_eq;
 
 #[test]
-fn test_vm() {
+fn test_templates() {
     let mut refs = Vec::new();
     for entry in fs::read_dir("tests/inputs/refs").unwrap() {
         let entry = entry.unwrap();
@@ -19,7 +19,7 @@ fn test_vm() {
         refs.push((entry.path().clone(), source));
     }
 
-    insta::glob!("inputs/macro_parameters.txt", |path| {
+    insta::glob!("inputs/loop_filter.txt", |path| {
         if !path.metadata().unwrap().is_file() {
             return;
         }

@@ -1,8 +1,5 @@
-{
-}
+{}
 ---
-{% macro say(word) %}
-    {{word}} is the word of the day
+{% macro not_called(word) %}
+    hidden
 {% endmacro %}
----
-{{ say("bird") }}

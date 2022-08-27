@@ -14,7 +14,6 @@ use crate::parser::parse;
 
 #[cfg(test)]
 use similar_asserts::assert_eq;
-use crate::ast::Stmt;
 
 /// Given a template source returns a set of undeclared variables.
 ///
