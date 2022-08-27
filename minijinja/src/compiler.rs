@@ -22,8 +22,7 @@ enum PendingBlock {
     ScBool(Vec<usize>),
 }
 
-#[cfg_attr(feature = "internal_debug", derive(Debug))]
-#[derive(PartialOrd, Ord, Eq, PartialEq, Hash, Clone)]
+#[derive(PartialOrd, Ord, Eq, PartialEq, Hash, Clone, Debug)]
 pub enum BlockType {
     SetBlock,
     Macro,
@@ -363,14 +362,11 @@ impl<'source> Compiler<'source> {
                 self.add(Instruction::Emit);
             }
             Stmt::Macro(mc) => {
-                println!("mc is {:?}", mc);
                 self.set_location_from_span(mc.span());
 
-                // add the BTreeMap
                 let mut sub_compiler =
                     Compiler::new(self.instructions.name(), self.instructions.source());
 
-                // Compile the statement independently of the current scope?
                 for node in &mc.body {
                     sub_compiler.compile_stmt(node)?;
                 }
@@ -387,15 +383,10 @@ impl<'source> Compiler<'source> {
                     children
                 };
 
-                // should we support macros of macros?
                 self.blocks.insert(mc.name, block);
-                // store the args with the macro
                 let mut args = Vec::new();
 
-                // self.add(Instruction::StoreMacro(mc.name));
-
                 for arg in &mc.args {
-                    // arg should be a var?
                     match arg {
                         Expr::Var(x) => {
                             args.push(x.id);
@@ -404,8 +395,6 @@ impl<'source> Compiler<'source> {
                     }
                 }
                 self.add(Instruction::StoreMacro(mc.name, args));
-
-                // self.add(Instruction::BuildList(mc.args.len()));
             }
         }
         Ok(())
