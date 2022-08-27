@@ -56,6 +56,7 @@ pub enum Stmt<'a> {
     ForLoop(Spanned<ForLoop<'a>>),
     IfCond(Spanned<IfCond<'a>>),
     WithBlock(Spanned<WithBlock<'a>>),
+    Macro(Spanned<Macro<'a>>),
     Set(Spanned<Set<'a>>),
     Block(Spanned<Block<'a>>),
     Extends(Spanned<Extends<'a>>),
@@ -80,6 +81,7 @@ impl<'a> fmt::Debug for Stmt<'a> {
             Stmt::Include(s) => fmt::Debug::fmt(s, f),
             Stmt::AutoEscape(s) => fmt::Debug::fmt(s, f),
             Stmt::FilterBlock(s) => fmt::Debug::fmt(s, f),
+            Stmt::Macro(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
@@ -173,6 +175,13 @@ pub struct Block<'a> {
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
 pub struct Extends<'a> {
     pub name: Expr<'a>,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+pub struct Macro<'a> {
+    pub body: Vec<Stmt<'a>>,
+    pub name: &'a str,
+    pub args: Vec<Expr<'a>>,
 }
 
 /// An include block.

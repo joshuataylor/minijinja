@@ -547,6 +547,10 @@ impl<'a> Parser<'a> {
                 self.parse_with_block()?,
                 self.stream.expand_span(span),
             ))),
+            Token::Ident("macro") => Ok(ast::Stmt::Macro(Spanned::new(
+                self.parse_macro()?,
+                self.stream.expand_span(span),
+            ))),
             Token::Ident("set") => Ok(ast::Stmt::Set(Spanned::new(
                 self.parse_set()?,
                 self.stream.expand_span(span),
@@ -722,8 +726,38 @@ impl<'a> Parser<'a> {
         Ok(ast::WithBlock { assignments, body })
     }
 
+    fn parse_macro(&mut self) -> Result<ast::Macro<'a>, Error> {
+        // @todo figure out if this is the right thing to do, i think it is.
+        // we don't need to check it first, as it should be a macro, and if it's not, it's an error anyway.
+        let (name, span) = expect_token!(self, Token::Ident(name) => name, "identifier")?;
+        let args = self.parse_args()?;
+
+        match self.stream.next()? {
+            Some((token, _span)) if matches!(token, Token::BlockEnd(_)) => {
+                let body = self.subparse(&|tok| matches!(tok, Token::Ident("endmacro")))?;
+                self.stream.next()?;
+                Ok(ast::Macro {
+                    args,
+                    body,
+                    name,
+                })
+            }
+            Some((token, _)) => Err(Error::new(
+                ErrorKind::SyntaxError,
+                format!("unexpected {}, expected {}", token, "assignment operator"),
+            )),
+            None => Err(Error::new(
+                ErrorKind::SyntaxError,
+                format!(
+                    "unexpected end of input, expected {}",
+                    "assignment operator"
+                ),
+            )),
+        }
+    }
+
     fn parse_set(&mut self) -> Result<ast::Set<'a>, Error> {
-        let mut xname = "";
+        let mut set_name = ""; // this is stupid
         let target = if matches!(self.stream.current()?, Some((Token::ParenOpen, _))) {
             self.stream.next()?;
             let assign = self.parse_assignment()?;
@@ -735,7 +769,7 @@ impl<'a> Parser<'a> {
                 syntax_error!("cannot assign to reserved variable name {}", id);
             }
             let assigned = ast::Expr::Var(ast::Spanned::new(ast::Var { id }, span));
-            xname = id;
+            set_name = id;
             assigned
         };
 
@@ -746,7 +780,7 @@ impl<'a> Parser<'a> {
                     target,
                     expr: Some(expr),
                     body: None,
-                    name: xname,
+                    name: set_name,
                 })
             }
             Some((token, _span)) if matches!(token, Token::BlockEnd(_)) => {
@@ -759,7 +793,7 @@ impl<'a> Parser<'a> {
                     target,
                     expr: None,
                     body: Some(body),
-                    name: xname,
+                    name: set_name,
                 })
             }
             Some((token, _)) => Err(Error::new(

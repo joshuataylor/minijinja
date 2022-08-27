@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt::{self, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::compiler::Block;
+use crate::compiler::{Block, BlockType};
 use crate::environment::Environment;
 use crate::error::{Error, ErrorKind};
 use crate::instructions::{
@@ -1036,7 +1036,39 @@ impl<'env> Vm<'env> {
                         recurse_loop!(true);
                     } else if let Some(func) = state.ctx.load(self.env, function_name) {
                         stack.push(try_ctx!(func.call(state, args)));
-                    } else {
+                    }
+
+                    // does this exist in blocks as a macro?
+                    // @todo make this into a function
+                    else if let Some(found_blocks) = blocks.get(function_name) {
+                        // does this block have the correct macro type?
+                        // there is probably a better way to do this.
+                        let macro_blocks = found_blocks.into_iter().filter(|x| x.block_type == BlockType::Macro);
+                        let args = try_ctx!(stack.pop().try_into_vec());
+
+                        for block in macro_blocks {
+                            let mut sub_context = Context::default();
+                            sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+                            let mut sub_state = State {
+                                env: self.env,
+                                ctx: sub_context,
+                                auto_escape: state.auto_escape,
+                                current_block: Some(function_name),
+                                name: function_name,
+                            };
+                            let mut output = String::new();
+
+                            self.eval_state(
+                                &mut sub_state,
+                                &block.instructions,
+                                blocks.clone(),
+                                &mut output,
+                            )?;
+                            stack.push(Value::from(output));
+                        }
+                    }
+
+                    else {
                         bail!(Error::new(
                             ErrorKind::ImpossibleOperation,
                             format!("unknown function {}", function_name),
@@ -1071,6 +1103,35 @@ impl<'env> Vm<'env> {
                         state.ctx.store(name, stack.pop());
                     }
                 }
+                // Instruction::PushMacro => {
+                //     if !blocks.is_empty() {
+                //         // Iterate over the blocks, adding the macro blocks to the stack that match the name.
+                //         // let macro_blocks = blocks.into_iter().filter(|x| x.block_type == BlockType::Macro);
+                //
+                //         for (block_name, blocks) in blocks {
+                //             for b in blocks {
+                //             let mut sub_context = Context::default();
+                //             sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+                //             let mut sub_state = State {
+                //                 env: self.env,
+                //                 ctx: sub_context,
+                //                 auto_escape: state.auto_escape,
+                //                 current_block: Some(function_name),
+                //                 name: function_name,
+                //             };
+                //             let mut output = String::new();
+                //
+                //             self.eval_state(
+                //                 &mut sub_state,
+                //                 &block.instructions,
+                //                 blocks.clone(),
+                //                 &mut output,
+                //             )?;
+                //             stack.push(Value::from(output));
+                //         }
+                //     }
+                // }
+                Instruction::PushMacro => {}
             }
             pc += 1;
         }

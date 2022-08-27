@@ -120,6 +120,9 @@ pub enum Instruction<'source> {
     /// Starts a with block.
     PushWith,
 
+    /// Starts a macro block.
+    PushMacro,
+
     /// Does a single loop iteration
     ///
     /// The argument is the jump target for when the loop
@@ -258,6 +261,7 @@ impl<'source> fmt::Debug for Instruction<'source> {
             Instruction::FastRecurse => write!(f, "FAST_RECURSE"),
             Instruction::Nop => write!(f, "NOP"),
             Instruction::StoreLocalSet(n) => write!(f, "STORE_LOCAL_SET (var {:?})", n),
+            Instruction::PushMacro => write!(f, "PUSH_MACRO"),
         }
     }
 }

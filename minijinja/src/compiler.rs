@@ -11,6 +11,7 @@ use crate::value::Value;
 
 #[cfg(test)]
 use similar_asserts::assert_eq;
+use crate::ast::Stmt;
 
 /// Represents an open block of code that does not yet have updated
 /// jump targets.
@@ -25,6 +26,7 @@ enum PendingBlock {
 #[derive(PartialOrd, Ord, Eq, PartialEq, Hash, Clone)]
 pub enum BlockType {
     SetBlock,
+    Macro,
     Block,
 }
 
@@ -359,6 +361,33 @@ impl<'source> Compiler<'source> {
                 self.add(Instruction::EndCapture);
                 self.compile_expr(&filter_block.filter)?;
                 self.add(Instruction::Emit);
+            }
+            Stmt::Macro(mc) => {
+                self.set_location_from_span(mc.span());
+
+                if !mc.args.is_empty() {
+                    self.add(Instruction::PushMacro);
+                }
+
+                // add the BTreeMap
+                let mut sub_compiler =
+                    Compiler::new(self.instructions.name(), self.instructions.source());
+
+                // Compile the statement independently of the current scope?
+                for node in &mc.body {
+                    sub_compiler.compile_stmt(node)?;
+                }
+
+                let (instructions, blocks) = sub_compiler.finish();
+
+                let block = Block {
+                    block_type: BlockType::Macro,
+                    instructions,
+                    children: None // @todo add children later? macro of macros? macro of macro of macros?
+                };
+
+                // should we support macros of macros?
+                self.blocks.insert(mc.name, block);
             }
         }
         Ok(())
