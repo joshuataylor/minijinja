@@ -25,8 +25,7 @@ enum PendingBlock {
 #[derive(PartialOrd, Ord, Eq, PartialEq, Hash, Clone, Debug)]
 pub enum BlockType {
     SetBlock,
-    Block,
-    Macro,
+    Block
 }
 
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
