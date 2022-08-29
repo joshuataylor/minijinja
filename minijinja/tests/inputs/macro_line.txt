@@ -1,0 +1,3 @@
+{}
+---
+{% macro testfoo() %}select 1{% endmacro %} 123 {{testfoo()}}

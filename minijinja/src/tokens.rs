@@ -161,7 +161,7 @@ impl<'a> fmt::Display for Token<'a> {
 }
 
 /// Token span information
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub struct Span {
     pub start_line: usize,
     pub start_col: usize,

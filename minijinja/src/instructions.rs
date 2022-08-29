@@ -21,7 +21,7 @@ pub enum Instruction<'source> {
     /// Stores a variable (only possible in for loops)
     StoreLocal(&'source str),
 
-    StoreMacro(&'source str, Vec<&'source str>),
+    StoreMacro(&'source str),
 
     /// Load a variable,
     Lookup(&'source str),
@@ -168,7 +168,11 @@ pub enum Instruction<'source> {
     CallFunction(&'source str),
 
     /// Calls a macro that is in scope
-    CallMacro(&'source str),
+    CallMacro(&'source str, usize),
+
+    /// Begins capturing of output.
+    BeginCallMacro,
+    StoreMacroArgument(&'source str, &'source str),
 
     /// Calls a method
     CallMethod(&'source str),
@@ -262,11 +266,12 @@ impl<'source> fmt::Debug for Instruction<'source> {
             Instruction::FastSuper => write!(f, "FAST_SUPER"),
             Instruction::FastRecurse => write!(f, "FAST_RECURSE"),
             Instruction::Nop => write!(f, "NOP"),
-            Instruction::CallMacro(n) => write!(f, "CALL_MACRO (var {:?})", n),
-            Instruction::StoreMacro(x, _) => {
-                // let vars: Vec<String> = a.iter().map(|ax| ax.to_string()).collect();
+            Instruction::CallMacro(n, i) => write!(f, "CALL_MACRO (var {:?} {} args passed)", n, i),
+            Instruction::StoreMacro(x) => {
                 write!(f, "STORE_MACRO (name {})", x)
             }
+            Instruction::StoreMacroArgument(x, mc) => write!(f, "STORE_MACRO_ARGUMENT (macro {}) (name {})", x, mc),
+            Instruction::BeginCallMacro => write!(f, "BEGIN_CALL_MACRO"),
         }
     }
 }
@@ -363,7 +368,7 @@ impl<'source> Instructions<'source> {
             let name = match instr {
                 Instruction::Lookup(name)
                 | Instruction::StoreLocal(name)
-                | Instruction::CallFunction(name) => *name,
+                | Instruction::CallFunction(name) | Instruction::CallMacro(name,_) => *name,
                 Instruction::PushLoop(flags) if flags & LOOP_FLAG_WITH_LOOP_VAR != 0 => "loop",
                 Instruction::PushLoop(_) | Instruction::PushWith => break,
                 _ => continue,
@@ -420,5 +425,5 @@ impl<'source> fmt::Debug for Instructions<'source> {
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn test_sizes() {
-    assert_eq!(std::mem::size_of::<Instruction>(), 48);
+    assert_eq!(std::mem::size_of::<Instruction>(), 40);
 }

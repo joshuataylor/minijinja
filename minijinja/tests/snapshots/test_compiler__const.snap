@@ -9,6 +9,7 @@ Compiler {
         00002 | STRING_CONCAT,
     ],
     blocks: {},
+    macros: {},
     pending_block: [],
     current_line: 0,
 }

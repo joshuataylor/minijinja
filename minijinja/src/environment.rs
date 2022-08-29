@@ -3,7 +3,7 @@ use std::fmt;
 
 use serde::Serialize;
 
-use crate::compiler::{Block, Compiler};
+use crate::compiler::{Block, Compiler, Macro};
 use crate::error::Error;
 use crate::instructions::Instructions;
 use crate::parser::{parse, parse_expr};
@@ -47,6 +47,7 @@ impl<'env> fmt::Debug for Template<'env> {
 pub(crate) struct CompiledTemplate<'source> {
     instructions: Instructions<'source>,
     blocks: BTreeMap<&'source str, Block<'source>>,
+    macros: BTreeMap<&'source str, Macro<'source>>,
 }
 
 impl<'env> fmt::Debug for CompiledTemplate<'env> {
@@ -56,6 +57,8 @@ impl<'env> fmt::Debug for CompiledTemplate<'env> {
         {
             ds.field("instructions", &self.instructions);
             ds.field("blocks", &self.blocks);
+            #[cfg(feature = "macros")]
+            ds.field("macros", &self.macros);
         }
         ds.finish()
     }
@@ -97,10 +100,11 @@ impl<'source> CompiledTemplate<'source> {
         let ast = parse(source, name)?;
         let mut compiler = Compiler::new(name, source);
         compiler.compile_stmt(&ast)?;
-        let (instructions, blocks) = compiler.finish();
+        let (instructions, blocks, macros) = compiler.finish();
         Ok(CompiledTemplate {
             instructions,
             blocks,
+            macros
         })
     }
 }
@@ -136,6 +140,7 @@ impl<'env> Template<'env> {
             &self.compiled.instructions,
             root,
             blocks,
+            &self.compiled.macros,
             self.initial_auto_escape,
             &mut output,
         )?;
@@ -282,11 +287,13 @@ impl<'env, 'source> Expression<'env, 'source> {
         let mut output = String::new();
         let vm = Vm::new(self.env);
         let blocks = BTreeMap::new();
+        let macros = BTreeMap::new();
         Ok(vm
             .eval(
                 &self.instructions,
                 root,
                 &blocks,
+                &macros,
                 AutoEscape::None,
                 &mut output,
             )?
@@ -464,7 +471,7 @@ impl<'source> Environment<'source> {
         let ast = parse_expr(expr)?;
         let mut compiler = Compiler::new("<expression>", expr);
         compiler.compile_expr(&ast)?;
-        let (instructions, _) = compiler.finish();
+        let (instructions, _, _) = compiler.finish();
         Ok(Expression {
             env: self,
             instructions,

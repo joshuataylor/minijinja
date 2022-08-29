@@ -22,6 +22,7 @@
 //!   - [`{% filter %}`](#-filter-)
 //!   - [`{% autoescape %}`](#-autoescape-)
 //!   - [`{% raw %}`](#-raw-)
+//!   - [`{% macro %}`](#-macro-)
 //!
 //! </details>
 //!
@@ -465,6 +466,41 @@
 //! {% endfor %}
 //! </ul>
 //! {% endraw %}
+//! ```
+//! ## `{% macro %}`
+//!
+//! A macro block is similar to functions in regular programming languages. They allow you to global
+//! functions that your template can call. When possible you should prefer to use Rust functions instead (Using `add_function`),
+//! as they are easier to use and have better type safety Macros are provided for convenience for end users
+//! to create functions that are not available in the standard library, and without having to recompile.
+//!
+//! Macros aren't global across templates, you need to be sure the template has access to the macro before it
+//! can be used.
+//!
+//! Example:
+//!
+//! ```jinja
+//! {% macro greet(name) %}
+//!   Hello {{ name }}
+//! {% endmacro %}
+//! {{ greet('World') }}
+//! ```
+//! You can also pass default arguments to the macro like so:
+//!
+//! ```jinja
+//! {% macro greet(name='World') %}
+//!   Hello {{ name }}
+//! {% endmacro %}
+//! {{ greet() }}
+//! ```
+//!
+//! Arguments can also be optional like so:
+//!
+//! ```jinja
+//! {% macro greet(greeter, name='World') %}
+//!   {{ greeter }} greets {{ name }}
+//! {% endmacro %}
+//! {{ greet('Foo') }}
 //! ```
 
 // this is just for docs

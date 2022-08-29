@@ -15,6 +15,7 @@ Compiler {
         00008 | EMIT_RAW (string "yes"),
     ],
     blocks: {},
+    macros: {},
     pending_block: [],
     current_line: 0,
 }

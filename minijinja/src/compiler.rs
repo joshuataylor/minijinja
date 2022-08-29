@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+#[cfg(feature = "macros")]
+use indexmap::IndexMap;
 
 use crate::ast;
 use crate::error::Error;
@@ -12,6 +14,7 @@ use crate::value::Value;
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use crate::ast::{Expr, Stmt};
+use crate::key::Key;
 
 /// Represents an open block of code that does not yet have updated
 /// jump targets.
@@ -25,8 +28,8 @@ enum PendingBlock {
 #[derive(PartialOrd, Ord, Eq, PartialEq, Hash, Clone, Debug)]
 pub enum BlockType {
     SetBlock,
-    Macro,
     Block,
+    Macro
 }
 
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
@@ -42,8 +45,33 @@ pub struct Block<'source> {
 pub struct Compiler<'source> {
     instructions: Instructions<'source>,
     blocks: BTreeMap<&'source str, Block<'source>>,
+    macros: BTreeMap<&'source str, Macro<'source>>,
     pending_block: Vec<PendingBlock>,
     current_line: usize,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone)]
+pub struct Macro<'source> {
+    pub instructions: Instructions<'source>,
+    pub args: Vec<(String, Expr<'source>)>,
+}
+
+impl Macro<'_> {
+    fn required_args(&self) -> usize {
+        let mut required_args = 0;
+        for (_, expr) in self.args.iter() {
+            match expr {
+                Expr::Map(k) => {
+                    if k.values.len() == 0 {
+                        required_args += 1;
+                    }
+                }
+                _ => unreachable!()
+            }
+        }
+        return required_args;
+    }
 }
 
 impl<'source> Compiler<'source> {
@@ -52,6 +80,7 @@ impl<'source> Compiler<'source> {
         Compiler {
             instructions: Instructions::new(file, source),
             blocks: BTreeMap::new(),
+            macros: BTreeMap::new(),
             pending_block: Vec::new(),
             current_line: 0,
         }
@@ -295,7 +324,7 @@ impl<'source> Compiler<'source> {
                         sub_compiler.compile_stmt(node)?;
                     }
 
-                    let (instructions, blocks) = sub_compiler.finish();
+                    let (instructions, blocks, _) = sub_compiler.finish();
 
                     let children = match blocks.is_empty() {
                         false => Some(blocks),
@@ -321,7 +350,7 @@ impl<'source> Compiler<'source> {
                     sub_compiler.compile_stmt(node)?;
                 }
 
-                let (instructions, blocks) = sub_compiler.finish();
+                let (instructions, blocks, _) = sub_compiler.finish();
                 self.blocks.extend(blocks.into_iter());
                 let blockf = Block {
                     block_type: BlockType::Block,
@@ -361,40 +390,30 @@ impl<'source> Compiler<'source> {
                 self.compile_expr(&filter_block.filter)?;
                 self.add(Instruction::Emit);
             }
-            Stmt::Macro(mc) => {
+            ast::Stmt::Macro(mc) => {
                 self.set_location_from_span(mc.span());
 
-                let mut sub_compiler =
-                    Compiler::new(self.instructions.name(), self.instructions.source());
+                let mut sub_compiler = Compiler::new(self.instructions.name(), self.instructions.source());
 
                 for node in &mc.body {
                     sub_compiler.compile_stmt(node)?;
                 }
+                let (instructions, blocks, _) = sub_compiler.finish();
 
-                let (instructions, blocks) = sub_compiler.finish();
-                let children = match blocks.is_empty() {
-                    false => Some(blocks),
-                    true => None,
+                let block = Macro {
+                    instructions: instructions.clone(),
+                    args: mc.args.clone(),
                 };
+                self.macros.insert(mc.name, block);
+                self.add(Instruction::StoreMacro(mc.name));
 
                 let block = Block {
                     block_type: BlockType::Macro,
-                    instructions,
-                    children
+                    instructions: instructions.clone(),
+                    children: None
                 };
 
                 self.blocks.insert(mc.name, block);
-                let mut args = Vec::new();
-
-                for arg in &mc.args {
-                    match arg {
-                        Expr::Var(x) => {
-                            args.push(x.id);
-                        }
-                        _ => (),
-                    }
-                }
-                self.add(Instruction::StoreMacro(mc.name, args));
             }
         }
         Ok(())
@@ -517,27 +536,37 @@ impl<'source> Compiler<'source> {
                 self.set_location_from_span(c.span());
                 match c.identify_call() {
                     ast::CallType::Function(name) => {
-                        // If we have a macro, compile it and replace the call with the result.
-                        // This is a bit of a hack, but it's the easiest way to do this for now.
-                        let mut is_macro = false;
-                        if let Some(macro_def) = self.blocks.get(name) {
-                            // does the block match?
-                            if macro_def.block_type == BlockType::Macro {
-                                is_macro = true;
+                        // This is stupid, can we just use a ref later?
+                        let found_macro: Option<Macro<'source>> = if let Some(macro_def) = self.macros.get(name) && c.args.len() >= macro_def.required_args() {
+                            Some(macro_def.clone()) // We have to do a clone here, as otherwise later we can't use compile.
+                        } else {
+                            None
+                        };
+                        match found_macro {
+                            None => {
                                 for arg in &c.args {
                                     self.compile_expr(arg)?;
                                 }
+                                self.add(Instruction::BuildList(c.args.len()));
+                                self.add(Instruction::CallFunction(name));
+                            }
+                            Some(found) => {
+                                for (index, (key, value)) in found.args.iter().enumerate().rev() {
+                                    let matched_expr = match c.args.get(index) {
+                                        None => {
+                                            match value {
+                                                Expr::Map(m) => m.values.first().expect("Has item"),
+                                                _ => unreachable!()
+                                            }
+                                        }
+                                        Some(a) => a
+                                    };
+                                    self.compile_expr(matched_expr);
 
-                                self.add(Instruction::CallMacro(name));
+                                }
+                                self.add(Instruction::CallMacro(name, c.args.len()));
                             }
-                        }
-                        if !is_macro {
-                            for arg in &c.args {
-                                self.compile_expr(arg)?;
-                            }
-                            self.add(Instruction::BuildList(c.args.len()));
-                            self.add(Instruction::CallFunction(name));
-                        }
+                        };
                     }
                     ast::CallType::Block(name) => {
                         self.add(Instruction::BeginCapture);
@@ -584,8 +613,9 @@ impl<'source> Compiler<'source> {
     ) -> (
         Instructions<'source>,
         BTreeMap<&'source str, Block<'source>>,
+        BTreeMap<&'source str, Macro<'source>>,
     ) {
         assert!(self.pending_block.is_empty());
-        (self.instructions, self.blocks)
+        (self.instructions, self.blocks, self.macros)
     }
 }

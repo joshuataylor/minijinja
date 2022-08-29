@@ -11,6 +11,7 @@ Compiler {
         00004 | LOOKUP (var "third"),
     ],
     blocks: {},
+    macros: {},
     pending_block: [],
     current_line: 0,
 }

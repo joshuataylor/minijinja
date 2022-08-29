@@ -13,6 +13,7 @@ Compiler {
         00006 | EMIT_RAW (string "!"),
     ],
     blocks: {},
+    macros: {},
     pending_block: [],
     current_line: 0,
 }
