@@ -104,7 +104,7 @@ impl<'source> CompiledTemplate<'source> {
         Ok(CompiledTemplate {
             instructions,
             blocks,
-            macros
+            macros,
         })
     }
 }

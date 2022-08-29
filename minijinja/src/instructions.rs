@@ -22,8 +22,6 @@ pub enum Instruction<'source> {
     /// Stores a variable (only possible in for loops)
     StoreLocal(&'source str),
 
-    StoreMacro(&'source str),
-
     /// Load a variable,
     Lookup(&'source str),
 
@@ -171,10 +169,6 @@ pub enum Instruction<'source> {
     /// Calls a macro that is in scope
     CallMacro(&'source str, usize),
 
-    /// Begins capturing of output.
-    BeginCallMacro,
-    StoreMacroArgument(&'source str, &'source str),
-
     /// Calls a method
     CallMethod(&'source str),
 
@@ -290,7 +284,8 @@ impl<'source> Instructions<'source> {
             let name = match instr {
                 Instruction::Lookup(name)
                 | Instruction::StoreLocal(name)
-                | Instruction::CallFunction(name) | Instruction::CallMacro(name,_) => *name,
+                | Instruction::CallFunction(name)
+                | Instruction::CallMacro(name, _) => *name,
                 Instruction::PushLoop(flags) if flags & LOOP_FLAG_WITH_LOOP_VAR != 0 => "loop",
                 Instruction::PushLoop(_) | Instruction::PushWith => break,
                 _ => continue,

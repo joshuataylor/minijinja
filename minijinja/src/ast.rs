@@ -2,8 +2,6 @@ use std::ops::Deref;
 
 #[cfg(feature = "internal_debug")]
 use std::fmt;
-#[cfg(feature = "macros")]
-use indexmap::IndexMap;
 
 use crate::tokens::Span;
 use crate::value::Value;

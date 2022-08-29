@@ -736,7 +736,7 @@ mod builtins {
             auto_escape: crate::AutoEscape::None,
             current_block: None,
             name: "<unknown>",
-            current_block_type: None
+            current_block_type: None,
         };
         let bx = BoxedFilter::new(test);
         assert_eq!(
@@ -763,7 +763,7 @@ mod builtins {
             auto_escape: crate::AutoEscape::None,
             current_block: None,
             name: "<unknown>",
-            current_block_type: None
+            current_block_type: None,
         };
         let bx = BoxedFilter::new(add);
         assert_eq!(

@@ -1,12 +1,9 @@
-use std::iter::FromIterator;
-#[cfg(feature = "macros")]
-use indexmap::IndexMap;
 use crate::ast::{self, Expr, Spanned};
 use crate::error::{Error, ErrorKind};
 use crate::lexer::tokenize;
 use crate::tokens::{Span, Token};
 use crate::utils::matches;
-use crate::value::{string_concat, Value};
+use crate::value::Value;
 
 const RESERVED_NAMES: [&str; 8] = [
     "true", "True", "false", "False", "none", "None", "loop", "self",
@@ -391,52 +388,61 @@ impl<'a> Parser<'a> {
             // keyword argument
             match expr {
                 ast::Expr::Var(ref var)
-                if matches!(self.stream.current()?, Some((Token::Assign, _))) =>
-                    {
-                        self.stream.next()?;
-                        if first_span.is_none() {
-                            first_span = Some(var.span());
-                        }
-                        let key = ast::Expr::Const(Spanned::new(
-                            ast::Const {
-                                value: Value::from(var.id),
-                            },
-                            var.span(),
-                        ));
-                        let value = self.parse_expr_noif()?;
-                        args.push((var.id.to_string(), ast::Expr::Map(ast::Spanned::new(
+                    if matches!(self.stream.current()?, Some((Token::Assign, _))) =>
+                {
+                    self.stream.next()?;
+                    if first_span.is_none() {
+                        first_span = Some(var.span());
+                    }
+                    let key = ast::Expr::Const(Spanned::new(
+                        ast::Const {
+                            value: Value::from(var.id),
+                        },
+                        var.span(),
+                    ));
+                    let value = self.parse_expr_noif()?;
+                    args.push((
+                        var.id.to_string(),
+                        ast::Expr::Map(ast::Spanned::new(
                             ast::Map {
                                 keys: vec![key],
                                 values: vec![value],
                             },
                             self.stream.expand_span(first_span.unwrap()),
-                        ))));
-                    }
+                        )),
+                    ));
+                }
                 Expr::Const(ref x) => {
                     if first_span.is_none() {
                         first_span = Some(x.span());
                     }
 
-                    args.push((x.value.to_string(), ast::Expr::Map(ast::Spanned::new(
-                        ast::Map {
-                            keys: vec![expr],
-                            values: vec![],
-                        },
-                        self.stream.expand_span(first_span.unwrap()),
-                    ))));
+                    args.push((
+                        x.value.to_string(),
+                        ast::Expr::Map(ast::Spanned::new(
+                            ast::Map {
+                                keys: vec![expr],
+                                values: vec![],
+                            },
+                            self.stream.expand_span(first_span.unwrap()),
+                        )),
+                    ));
                 }
                 ast::Expr::Var(ref var) => {
                     if first_span.is_none() {
                         first_span = Some(var.span());
                     }
 
-                    args.push((var.id.to_string(), ast::Expr::Map(ast::Spanned::new(
-                        ast::Map {
-                            keys: vec![expr],
-                            values: vec![],
-                        },
-                        self.stream.expand_span(first_span.unwrap()),
-                    ))));
+                    args.push((
+                        var.id.to_string(),
+                        ast::Expr::Map(ast::Spanned::new(
+                            ast::Map {
+                                keys: vec![expr],
+                                values: vec![],
+                            },
+                            self.stream.expand_span(first_span.unwrap()),
+                        )),
+                    ));
                 }
                 _ => {}
             }
@@ -445,7 +451,6 @@ impl<'a> Parser<'a> {
         expect_token!(self, Token::ParenClose, "`)`")?;
         Ok(args)
     }
-
 
     fn parse_args(&mut self) -> Result<Vec<ast::Expr<'a>>, Error> {
         let mut args = Vec::new();
@@ -480,65 +485,6 @@ impl<'a> Parser<'a> {
                     )));
                     kwargs_values.push(self.parse_expr_noif()?);
                 }
-                _ if !kwargs_keys.is_empty() => {
-                    return Err(Error::new(
-                        ErrorKind::SyntaxError,
-                        "non-keyword arg after keyword arg",
-                    ));
-                }
-                _ => {
-                    args.push(expr);
-                }
-            }
-        }
-
-        if !kwargs_keys.is_empty() {
-            args.push(ast::Expr::Map(ast::Spanned::new(
-                ast::Map {
-                    keys: kwargs_keys,
-                    values: kwargs_values,
-                },
-                self.stream.expand_span(first_span.unwrap()),
-            )));
-        }
-
-        expect_token!(self, Token::ParenClose, "`)`")?;
-        Ok(args)
-    }
-
-    fn parse_args2(&mut self) -> Result<Vec<ast::Expr<'a>>, Error> {
-        let mut args = Vec::new();
-        let mut first_span = None;
-        let mut kwargs_keys = Vec::new();
-        let mut kwargs_values = Vec::new();
-
-        expect_token!(self, Token::ParenOpen, "`(`")?;
-        loop {
-            if matches!(self.stream.current()?, Some((Token::ParenClose, _))) {
-                break;
-            }
-            if !args.is_empty() || !kwargs_keys.is_empty() {
-                expect_token!(self, Token::Comma, "`,`")?;
-            }
-            let expr = self.parse_expr()?;
-
-            // keyword argument
-            match expr {
-                ast::Expr::Var(ref var)
-                if matches!(self.stream.current()?, Some((Token::Assign, _))) =>
-                    {
-                        self.stream.next()?;
-                        if first_span.is_none() {
-                            first_span = Some(var.span());
-                        }
-                        kwargs_keys.push(ast::Expr::Const(Spanned::new(
-                            ast::Const {
-                                value: Value::from(var.id),
-                            },
-                            var.span(),
-                        )));
-                        kwargs_values.push(self.parse_expr_noif()?);
-                    }
                 _ if !kwargs_keys.is_empty() => {
                     return Err(Error::new(
                         ErrorKind::SyntaxError,
@@ -886,11 +832,7 @@ impl<'a> Parser<'a> {
         let body = self.subparse(&|tok| matches!(tok, Token::Ident("endmacro")))?;
         self.stream.next()?;
 
-        Ok(ast::Macro {
-            args,
-            body,
-            name,
-        })
+        Ok(ast::Macro { args, body, name })
     }
 
     fn parse_set(&mut self) -> Result<ast::Set<'a>, Error> {

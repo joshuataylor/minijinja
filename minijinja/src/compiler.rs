@@ -1,6 +1,4 @@
 use std::collections::BTreeMap;
-#[cfg(feature = "macros")]
-use indexmap::IndexMap;
 
 use crate::ast;
 use crate::error::Error;
@@ -11,10 +9,9 @@ use crate::tokens::Span;
 use crate::utils::matches;
 use crate::value::Value;
 
+use crate::ast::Expr;
 #[cfg(test)]
 use similar_asserts::assert_eq;
-use crate::ast::{Expr, Stmt};
-use crate::key::Key;
 
 /// Represents an open block of code that does not yet have updated
 /// jump targets.
@@ -29,7 +26,7 @@ enum PendingBlock {
 pub enum BlockType {
     SetBlock,
     Block,
-    Macro
+    Macro,
 }
 
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
@@ -67,7 +64,7 @@ impl Macro<'_> {
                         required_args += 1;
                     }
                 }
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         }
         return required_args;
@@ -393,27 +390,19 @@ impl<'source> Compiler<'source> {
             ast::Stmt::Macro(mc) => {
                 self.set_location_from_span(mc.span());
 
-                let mut sub_compiler = Compiler::new(self.instructions.name(), self.instructions.source());
+                let mut sub_compiler =
+                    Compiler::new(self.instructions.name(), self.instructions.source());
 
                 for node in &mc.body {
                     sub_compiler.compile_stmt(node)?;
                 }
-                let (instructions, blocks, _) = sub_compiler.finish();
+                let (instructions, _blocks, _) = sub_compiler.finish();
 
                 let block = Macro {
                     instructions: instructions.clone(),
                     args: mc.args.clone(),
                 };
                 self.macros.insert(mc.name, block);
-                self.add(Instruction::StoreMacro(mc.name));
-
-                let block = Block {
-                    block_type: BlockType::Macro,
-                    instructions: instructions.clone(),
-                    children: None
-                };
-
-                self.blocks.insert(mc.name, block);
             }
         }
         Ok(())
@@ -551,18 +540,15 @@ impl<'source> Compiler<'source> {
                                 self.add(Instruction::CallFunction(name));
                             }
                             Some(found) => {
-                                for (index, (key, value)) in found.args.iter().enumerate().rev() {
+                                for (index, (_key, value)) in found.args.iter().enumerate().rev() {
                                     let matched_expr = match c.args.get(index) {
-                                        None => {
-                                            match value {
-                                                Expr::Map(m) => m.values.first().expect("Has item"),
-                                                _ => unreachable!()
-                                            }
-                                        }
-                                        Some(a) => a
+                                        None => match value {
+                                            Expr::Map(m) => m.values.first().expect("Has item"),
+                                            _ => unreachable!(),
+                                        },
+                                        Some(a) => a,
                                     };
-                                    self.compile_expr(matched_expr);
-
+                                    self.compile_expr(matched_expr)?;
                                 }
                                 self.add(Instruction::CallMacro(name, c.args.len()));
                             }
