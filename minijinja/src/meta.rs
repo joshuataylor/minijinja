@@ -14,6 +14,7 @@ use crate::parser::parse;
 
 #[cfg(test)]
 use similar_asserts::assert_eq;
+use crate::ast::Stmt;
 
 /// Given a template source returns a set of undeclared variables.
 ///
@@ -207,6 +208,7 @@ pub fn find_undeclared_variables(source: &str) -> Result<HashSet<String>, Error>
                 mc.body.iter().for_each(|x| walk(x, state));
                 state.pop();
             }
+            ast::Stmt::Do(_) => {}
         }
     }
 
@@ -270,6 +272,7 @@ pub fn find_referenced_templates(source: &str) -> Result<HashSet<String>, Error>
             ast::Stmt::AutoEscape(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
             ast::Stmt::FilterBlock(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
             ast::Stmt::Macro(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
+            ast::Stmt::Do(_) => {}
         }
     }
 

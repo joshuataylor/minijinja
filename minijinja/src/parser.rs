@@ -658,6 +658,10 @@ impl<'a> Parser<'a> {
                 self.parse_filter_block()?,
                 self.stream.expand_span(span),
             ))),
+            Token::Ident("do") => Ok(ast::Stmt::Do(Spanned::new(
+                self.parse_do()?,
+                self.stream.expand_span(span),
+            ))),
             Token::Ident(name) => syntax_error!("unknown statement {}", name),
             token => syntax_error!("unknown {}, expected statement", token),
         }
@@ -967,6 +971,15 @@ impl<'a> Parser<'a> {
         let body = self.subparse(&|tok| matches!(tok, Token::Ident("endfilter")))?;
         self.stream.next()?;
         Ok(ast::FilterBlock { filter, body })
+    }
+
+    fn parse_do(&mut self) -> Result<ast::Do<'a>, Error> {
+        let expr = self.parse_expr_noif()?;
+        if !matches!(self.stream.current()?, Some((Token::BlockEnd(_), _))) {
+            // error here?
+        }
+
+        Ok(ast::Do { target: expr })
     }
 
     fn subparse(

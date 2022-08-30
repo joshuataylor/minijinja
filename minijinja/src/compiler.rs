@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use crate::ast::Expr;
 #[cfg(test)]
 use similar_asserts::assert_eq;
+use crate::ast::Stmt;
 
 /// Represents an open block of code that does not yet have updated
 /// jump targets.
@@ -410,6 +411,15 @@ impl<'source> Compiler<'source> {
                 };
                 self.macros.insert(mc.name, block);
                 self.add(Instruction::StoreMacro(mc.name));
+            }
+            ast::Stmt::Do(dob) => {
+                // take all the expressions out now
+                self.set_location_from_span(dob.span());
+                self.add(Instruction::BeginCapture);
+                // for node in &dob.target {
+                self.compile_expr(&dob.target)?;
+                self.add(Instruction::EndCapture);
+                self.add(Instruction::Emit);
             }
         }
         Ok(())

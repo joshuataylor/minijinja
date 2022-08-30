@@ -64,6 +64,7 @@ pub enum Stmt<'a> {
     Include(Spanned<Include<'a>>),
     AutoEscape(Spanned<AutoEscape<'a>>),
     FilterBlock(Spanned<FilterBlock<'a>>),
+    Do(Spanned<Do<'a>>)
 }
 
 #[cfg(feature = "internal_debug")]
@@ -83,6 +84,7 @@ impl<'a> fmt::Debug for Stmt<'a> {
             Stmt::AutoEscape(s) => fmt::Debug::fmt(s, f),
             Stmt::FilterBlock(s) => fmt::Debug::fmt(s, f),
             Stmt::Macro(s) => fmt::Debug::fmt(s, f),
+            Stmt::Do(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
@@ -123,6 +125,12 @@ impl<'a> fmt::Debug for Expr<'a> {
             Expr::Map(s) => fmt::Debug::fmt(s, f),
         }
     }
+}
+
+/// Applies filters to a block.
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+pub struct Do<'a> {
+    pub target: Expr<'a>,
 }
 
 /// Root template node.
