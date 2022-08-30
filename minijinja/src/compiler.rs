@@ -11,6 +11,7 @@ use crate::value::Value;
 
 #[cfg(test)]
 use similar_asserts::assert_eq;
+use crate::ast::Stmt;
 
 /// Represents an open block of code that does not yet have updated
 /// jump targets.
@@ -312,6 +313,15 @@ impl<'source> Compiler<'source> {
                 self.compile_expr(&filter_block.filter)?;
                 self.add(Instruction::Emit);
             }
+            Stmt::Do(dob) => {
+                // take all the expressions out now
+                self.set_location_from_span(dob.span());
+                self.add(Instruction::BeginCapture);
+                // for node in &dob.target {
+                self.compile_expr(&dob.target)?;
+                self.add(Instruction::EndCapture);
+                self.add(Instruction::Emit);
+            }
         }
         Ok(())
     }
@@ -455,6 +465,12 @@ impl<'source> Compiler<'source> {
                     ast::CallType::Object(expr) => {
                         self.compile_expr(expr)?;
                         self.add(Instruction::CallObject);
+                    }
+                    ast::CallType::Do(name) => {
+                        self.add(Instruction::BeginCapture);
+
+                        // self.add(Instruction::CallBlock(name));
+                        self.add(Instruction::EndCapture);
                     }
                 }
             }

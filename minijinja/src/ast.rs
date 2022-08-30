@@ -62,6 +62,7 @@ pub enum Stmt<'a> {
     Include(Spanned<Include<'a>>),
     AutoEscape(Spanned<AutoEscape<'a>>),
     FilterBlock(Spanned<FilterBlock<'a>>),
+    Do(Spanned<Do<'a>>)
 }
 
 #[cfg(feature = "internal_debug")]
@@ -80,6 +81,7 @@ impl<'a> fmt::Debug for Stmt<'a> {
             Stmt::Include(s) => fmt::Debug::fmt(s, f),
             Stmt::AutoEscape(s) => fmt::Debug::fmt(s, f),
             Stmt::FilterBlock(s) => fmt::Debug::fmt(s, f),
+            Stmt::Do(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
@@ -192,6 +194,11 @@ pub struct AutoEscape<'a> {
 pub struct FilterBlock<'a> {
     pub filter: Expr<'a>,
     pub body: Vec<Stmt<'a>>,
+}
+/// Applies filters to a block.
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+pub struct Do<'a> {
+    pub target: Expr<'a>,
 }
 
 /// Outputs the expression.
@@ -327,6 +334,7 @@ pub enum CallType<'ast, 'source> {
     Method(&'ast Expr<'source>, &'source str),
     Block(&'source str),
     Object(&'ast Expr<'source>),
+    Do(&'ast Expr<'source>),
 }
 
 impl<'a> Call<'a> {

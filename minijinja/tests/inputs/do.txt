@@ -1,0 +1,12 @@
+{
+  "map": {
+    "a": "b",
+    "c": "d"
+  }
+}
+---
+nothing {% do map|tojson %}
+nothing {% do [1,2,3] %}
+nothing {% do 1 > 2 and 3 < 4 %}
+{% set foo = 1 %}
+nothing {% do foo %}
