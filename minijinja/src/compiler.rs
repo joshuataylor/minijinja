@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::ast;
 use crate::error::Error;
 use crate::instructions::{
@@ -8,6 +6,7 @@ use crate::instructions::{
 use crate::tokens::Span;
 use crate::utils::matches;
 use crate::value::Value;
+use std::collections::BTreeMap;
 
 use crate::ast::Expr;
 #[cfg(test)]
@@ -25,7 +24,7 @@ enum PendingBlock {
 #[derive(PartialOrd, Ord, Eq, PartialEq, Hash, Clone, Debug)]
 pub enum BlockType {
     SetBlock,
-    Block
+    Block,
 }
 
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
@@ -33,14 +32,14 @@ pub enum BlockType {
 pub struct Block<'source> {
     pub block_type: BlockType,
     pub instructions: Instructions<'source>,
-    pub children: Option<BTreeMap<&'source str, Block<'source>>>,
+    pub children: Option<BTreeMap<String, Block<'source>>>,
 }
 
 /// Provides a convenient interface to creating instructions for the VM.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
 pub struct Compiler<'source> {
     instructions: Instructions<'source>,
-    blocks: BTreeMap<&'source str, Block<'source>>,
+    blocks: BTreeMap<String, Block<'source>>,
     macros: BTreeMap<&'source str, Macro<'source>>,
     pending_block: Vec<PendingBlock>,
     current_line: usize,
@@ -306,6 +305,12 @@ impl<'source> Compiler<'source> {
                 self.add(Instruction::PopFrame);
             }
             ast::Stmt::Set(set) => {
+                if let Some(block) = self.blocks.get(set.name) {
+                    if block.block_type == BlockType::SetBlock {
+                        println!("removing block");
+                        self.blocks.remove(set.name);
+                    }
+                }
                 if let Some(expr) = &set.expr {
                     self.set_location_from_span(set.span());
                     self.compile_expr(expr)?;
@@ -321,8 +326,9 @@ impl<'source> Compiler<'source> {
                     }
 
                     let (instructions, blocks, _) = sub_compiler.finish();
+                    self.blocks.extend(blocks.clone().into_iter());
 
-                    let children = match blocks.is_empty() {
+                    let children = match &blocks.is_empty() {
                         false => Some(blocks),
                         true => None,
                     };
@@ -332,9 +338,10 @@ impl<'source> Compiler<'source> {
                         instructions,
                         children,
                     };
+                    let foo = format!("{}_{}", set.name, set.span().start_line);
 
-                    self.blocks.insert(set.name, block);
-                    self.add(Instruction::StoreLocal(set.name));
+                    self.blocks.insert(foo.clone(), block);
+                    self.add(Instruction::StoreLocalSetBlock(set.name, foo.clone()));
                 }
             }
             ast::Stmt::Block(block) => {
@@ -354,7 +361,7 @@ impl<'source> Compiler<'source> {
                     children: None,
                 };
 
-                self.blocks.insert(block.name, blockf);
+                self.blocks.insert(block.name.to_string(), blockf);
                 self.add(Instruction::CallBlock(block.name));
             }
             ast::Stmt::Extends(extends) => {
@@ -402,6 +409,7 @@ impl<'source> Compiler<'source> {
                     args: mc.args.clone(),
                 };
                 self.macros.insert(mc.name, block);
+                self.add(Instruction::StoreMacro(mc.name));
             }
         }
         Ok(())
@@ -597,7 +605,7 @@ impl<'source> Compiler<'source> {
         self,
     ) -> (
         Instructions<'source>,
-        BTreeMap<&'source str, Block<'source>>,
+        BTreeMap<String, Block<'source>>,
         BTreeMap<&'source str, Macro<'source>>,
     ) {
         assert!(self.pending_block.is_empty());

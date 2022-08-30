@@ -26,6 +26,12 @@
   {{ a }}|{{ b }}|{{ c }}
 {% endwith %}
 
+{% set x = 2 %}
+x is {{x}}
 {% with ((a,), b, c) = tuple2 %}
   {{ a }}|{{ b }}|{{ c }}
+  {% set x = 1 %}
+  x with is {{x}}
 {% endwith %}
+
+x is still {{x}}

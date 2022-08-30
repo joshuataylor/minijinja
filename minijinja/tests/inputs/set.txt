@@ -22,3 +22,20 @@ Into Loop:
 Conditional:
 {% if true %}{% set foo = "was true" %}{% endif %}
 {{ foo }}
+
+Set Block:
+{% set foobar %}
+i am first
+{% endset %}
+
+foobar begins at {{ foobar }}
+
+{% set foobar = "set inline" %}
+little set is {{foobar}}
+
+{% with %}
+    inside with foobar is still {{foobar}}
+  foobar nv is {% set foobar %}new value{%endset%}
+  {{ foobar }}
+{% endwith %}
+original foobar is {{ foobar }}

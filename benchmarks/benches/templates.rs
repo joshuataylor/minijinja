@@ -48,15 +48,39 @@ fn create_real_env() -> Environment<'static> {
     env
 }
 
+fn create_macro_env() -> Environment<'static> {
+    let mut env = Environment::new();
+    let my_macro = r"{% macro greet(first, second, third=[1,2,3]) %}
+    first is {{first}}
+    second is {{second}}
+    third is {{third}}
+{% endmacro %}";
+    env.add_macro("greet", my_macro);
+
+    env.add_template("macro.html", include_str!("../inputs/macro.html"))
+        .unwrap();
+
+    env
+}
+
 pub fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("parse all_elements", |b| b.iter(|| do_parse()));
-    c.bench_function("parse+compile all_elements", |b| {
-        b.iter(|| do_parse_and_compile())
+    c.bench_function("render basic macro", |b| {
+        let env = create_macro_env();
+        let tmpl = env.get_template("macro.html").unwrap();
+        b.iter(|| {
+            tmpl.render(context! {DEBUG => false})
+            .unwrap();
+        });
     });
-    c.bench_function("render all_elements", |b| {
-        let env = create_real_env();
-        b.iter(|| do_render(&env));
-    });
+
+    // c.bench_function("parse all_elements", |b| b.iter(|| do_parse()));
+    // c.bench_function("parse+compile all_elements", |b| {
+    //     b.iter(|| do_parse_and_compile())
+    // });
+    // c.bench_function("render all_elements", |b| {
+    //     let env = create_real_env();
+    //     b.iter(|| do_render(&env));
+    // });
 }
 
 criterion_group!(benches, criterion_benchmark);

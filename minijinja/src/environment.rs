@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -12,6 +13,7 @@ use crate::value::{ArgType, FunctionArgs, RcType, Value};
 use crate::vm::Vm;
 use crate::{filters, functions, tests};
 
+use crate::ast::Expr;
 #[cfg(test)]
 use similar_asserts::assert_eq;
 
@@ -46,7 +48,7 @@ impl<'env> fmt::Debug for Template<'env> {
 #[derive(Clone)]
 pub(crate) struct CompiledTemplate<'source> {
     instructions: Instructions<'source>,
-    blocks: BTreeMap<&'source str, Block<'source>>,
+    blocks: BTreeMap<String, Block<'source>>,
     macros: BTreeMap<&'source str, Macro<'source>>,
 }
 
@@ -153,7 +155,7 @@ impl<'env> Template<'env> {
     }
 
     /// Returns the blocks.
-    pub(crate) fn blocks(&self) -> &'env BTreeMap<&'env str, Block<'env>> {
+    pub(crate) fn blocks(&self) -> &'env BTreeMap<String, Block<'env>> {
         &self.compiled.blocks
     }
 
@@ -207,6 +209,7 @@ pub struct Environment<'source> {
     filters: RcType<BTreeMap<&'source str, filters::BoxedFilter>>,
     tests: RcType<BTreeMap<&'source str, tests::BoxedTest>>,
     pub(crate) globals: RcType<BTreeMap<&'source str, Value>>,
+    pub(crate) macros: RcType<BTreeMap<&'source str, (Macro<'source>, Vec<Option<Value>>)>>,
     default_auto_escape: RcType<dyn Fn(&str) -> AutoEscape + Sync + Send>,
     #[cfg(feature = "debug")]
     debug: bool,
@@ -313,6 +316,7 @@ impl<'source> Environment<'source> {
             filters: RcType::new(filters::get_builtin_filters()),
             tests: RcType::new(tests::get_builtin_tests()),
             globals: RcType::new(functions::get_globals()),
+            macros: RcType::new(Default::default()),
             default_auto_escape: RcType::new(default_auto_escape),
             #[cfg(feature = "debug")]
             debug: false,
@@ -329,6 +333,7 @@ impl<'source> Environment<'source> {
             filters: RcType::default(),
             tests: RcType::default(),
             globals: RcType::default(),
+            macros: Arc::new(Default::default()),
             default_auto_escape: RcType::new(no_auto_escape),
             #[cfg(feature = "debug")]
             debug: false,
@@ -467,6 +472,23 @@ impl<'source> Environment<'source> {
         attach_basic_debug_info(self._compile_expression(expr), expr)
     }
 
+    pub fn _compile_expr(
+        &self,
+        expr: &'source Expr,
+    ) -> Result<Expression<'_, 'source>, Error> {
+        let mut compiler = Compiler::new("<expression>", "macro");
+        compiler.compile_expr(&expr)?;
+        let (instructions, _, _) = compiler.finish();
+
+        attach_basic_debug_info(
+            Ok(Expression {
+                env: self,
+                instructions,
+            }),
+            "x",
+        )
+    }
+
     fn _compile_expression(&self, expr: &'source str) -> Result<Expression<'_, 'source>, Error> {
         let ast = parse_expr(expr)?;
         let mut compiler = Compiler::new("<expression>", expr);
@@ -524,6 +546,38 @@ impl<'source> Environment<'source> {
         Args: FunctionArgs,
     {
         self.add_global(name, functions::BoxedFunction::new(f).to_value());
+    }
+
+    pub fn add_macro(&mut self, contents: &'source str) {
+        let ast = parse(contents, "<macro>").unwrap();
+        let mut compiler = Compiler::new("<macro>", contents);
+        compiler.compile_stmt(&ast).unwrap();
+        let (_, _, macros) = compiler.finish();
+        for (macro_name, found_macro) in macros {
+            // get the macro args out. this way they are cached for later.
+            let mut macro_args = Vec::with_capacity(found_macro.args.len());
+
+            // Precompile the arguments now, so we don't have to recompute them later.
+            // This is a pretty quick operation, and saves on recalculating, especially if the macro
+            // is called many times.
+            for (_, expr) in &found_macro.args {
+                let matched_expr = match expr {
+                    Expr::Map(m) => {
+                        if m.values.len() > 0 {
+                            let map_value = m.values.first().expect("Has item");
+                            let map_expression = self._compile_expr(map_value).expect("Compiled");
+                            Some(map_expression.eval(&()).expect("Expression"))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                macro_args.push(matched_expr);
+            }
+
+            RcType::make_mut(&mut self.macros).insert(macro_name, (found_macro, macro_args));
+        }
     }
 
     /// Adds a global variable.

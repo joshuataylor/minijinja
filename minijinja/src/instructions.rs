@@ -22,6 +22,9 @@ pub enum Instruction<'source> {
     /// Stores a variable (only possible in for loops)
     StoreLocal(&'source str),
 
+    /// Stores a variable (only possible in for loops)
+    StoreLocalSetBlock(&'source str, String),
+
     /// Load a variable,
     Lookup(&'source str),
 
@@ -33,6 +36,8 @@ pub enum Instruction<'source> {
 
     /// Loads a constant value.
     LoadConst(Value),
+
+    StoreMacro(&'source str),
 
     /// Builds a map of the last n pairs on the stack.
     BuildMap(usize),

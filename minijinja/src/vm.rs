@@ -1,7 +1,3 @@
-use std::collections::{BTreeMap, HashSet};
-use std::fmt::{self, Write};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use crate::compiler::{Block, BlockType, Macro};
 use crate::environment::Environment;
 use crate::error::{Error, ErrorKind};
@@ -12,6 +8,9 @@ use crate::key::Key;
 use crate::utils::matches;
 use crate::value::{self, Object, RcType, Value, ValueIterator, ValueRepr};
 use crate::AutoEscape;
+use std::collections::{BTreeMap, HashSet};
+use std::fmt::{self, Write};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct LoopState {
     len: AtomicUsize,
@@ -454,7 +453,7 @@ impl<'env> Vm<'env> {
         &self,
         instructions: &Instructions<'env>,
         root: Value,
-        blocks: &BTreeMap<&'env str, Block<'env>>,
+        blocks: &BTreeMap<String, Block<'env>>,
         macros: &BTreeMap<&'env str, Macro<'env>>,
         initial_auto_escape: AutoEscape,
         output: &mut String,
@@ -462,13 +461,9 @@ impl<'env> Vm<'env> {
         let mut ctx = Context::default();
         ctx.push_frame(Frame::new(FrameBase::Value(root)));
         let mut referenced_blocks = BTreeMap::new();
-        // let mut referenced_macros = BTreeMap::new();
         for (name, instr) in blocks.iter() {
             referenced_blocks.insert(name.clone(), vec![instr]);
         }
-        // for (name, instr) in macros.iter() {
-        //     referenced_macros.insert(name.clone(), vec![instr.instructions]);
-        // }
 
         let mut state = State {
             env: self.env,
@@ -490,11 +485,11 @@ impl<'env> Vm<'env> {
     }
 
     /// This is the actual evaluation loop that works with a specific context.
-    fn eval_state(
+    pub fn eval_state(
         &self,
         state: &mut State<'_, 'env>,
         mut instructions: &Instructions<'env>,
-        mut blocks: BTreeMap<&'env str, Vec<&'_ Block<'env>>>,
+        mut blocks: BTreeMap<String, Vec<&'_ Block<'env>>>,
         macros: BTreeMap<&'env str, Macro<'env>>,
         output: &mut String,
     ) -> Result<Option<Value>, Error> {
@@ -668,71 +663,6 @@ impl<'env> Vm<'env> {
                 Instruction::Lookup(name) => {
                     if let Some(val) = state.ctx.load(self.env, name) {
                         stack.push(val);
-                    } else if let Some(found_blocks) = blocks.get(name) {
-                        for block in found_blocks {
-                            let mut sub_context = Context::default();
-                            sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
-                            let mut sub_state = State {
-                                env: self.env,
-                                ctx: sub_context,
-                                auto_escape: state.auto_escape,
-                                current_block: Some(name),
-                                name,
-                                current_block_type: Some(&block.block_type),
-                            };
-                            let mut output = String::new();
-
-                            self.eval_state(
-                                &mut sub_state,
-                                &block.instructions,
-                                blocks.clone(),
-                                macros.clone(),
-                                &mut output,
-                            )?;
-                            stack.push(Value::from(output));
-                        }
-                    } else if let Some(cb) = state.current_block() {
-                        if let Some(found_blocks) = blocks.get(cb) {
-                            // find the child that matches. First match wins for now.
-                            for found_block in found_blocks {
-                                match &found_block.children {
-                                    None => continue,
-                                    Some(children) => {
-                                        for (child_name, child_block) in children {
-                                            if child_name == name {
-                                                let mut sub_context = Context::default();
-                                                sub_context.push_frame(Frame::new(
-                                                    FrameBase::Context(&state.ctx),
-                                                ));
-                                                let mut sub_state = State {
-                                                    env: self.env,
-                                                    ctx: sub_context,
-                                                    auto_escape: state.auto_escape,
-                                                    current_block: Some(child_name),
-                                                    name: child_name,
-                                                    current_block_type: Some(
-                                                        &child_block.block_type,
-                                                    ),
-                                                };
-                                                let mut output = String::new();
-
-                                                self.eval_state(
-                                                    &mut sub_state,
-                                                    &child_block.instructions,
-                                                    blocks.clone(),
-                                                    macros.clone(),
-                                                    &mut output,
-                                                )?;
-
-                                                stack.push(Value::from(output));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        stack.push(Value::UNDEFINED);
                     }
                 }
                 Instruction::GetAttr(name) => {
@@ -907,7 +837,7 @@ impl<'env> Vm<'env> {
                 Instruction::CallBlock(name) => {
                     block_stack.push(state.current_block);
                     state.current_block = Some(name);
-                    if let Some(layers) = blocks.get(name) {
+                    if let Some(layers) = blocks.get(&name.to_string()) {
                         let instructions = layers.first().unwrap();
                         sub_eval!(&instructions.instructions);
                     } else {
@@ -1073,6 +1003,40 @@ impl<'env> Vm<'env> {
                         recurse_loop!(true);
                     } else if let Some(func) = state.ctx.load(self.env, function_name) {
                         stack.push(try_ctx!(func.call(state, args)));
+                    } else if let Some((found_macro, macro_args)) =
+                        self.env.macros.get(function_name)
+                    {
+                        let mut sub_context = Context::default();
+                        sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+
+                        let mut sub_state = State {
+                            env: self.env,
+                            ctx: sub_context,
+                            auto_escape: state.auto_escape,
+                            current_block: Some(function_name),
+                            name: function_name,
+                            current_block_type: state.current_block_type,
+                        };
+                        for (index, (arg_name, _expr)) in found_macro.args.iter().enumerate() {
+                            match args.get(index) {
+                                None => match macro_args.get(index).unwrap() {
+                                    None => (),
+                                    Some(a) => sub_state.ctx.store(&arg_name, a.clone()),
+                                },
+                                Some(a) => sub_state.ctx.store(&arg_name, a.clone()),
+                            };
+                        }
+
+                        let mut output = String::new();
+                        self.eval_state(
+                            &mut sub_state,
+                            &found_macro.instructions,
+                            blocks.clone(),
+                            macros.clone(),
+                            &mut output,
+                        )?;
+
+                        stack.push(Value::from(output));
                     } else {
                         bail!(Error::new(
                             ErrorKind::ImpossibleOperation,
@@ -1131,6 +1095,38 @@ impl<'env> Vm<'env> {
                     )?;
 
                     stack.push(Value::from(output));
+                }
+                Instruction::StoreMacro(_) => {}
+                Instruction::StoreLocalSetBlock(name, block) => {
+                    let block = blocks.get(&block.to_string());
+                    match block {
+                        None => (),
+                        Some(found_blocks) => {
+                            for block in found_blocks {
+                                let mut sub_context = Context::default();
+                                sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+
+                                let mut sub_state = State {
+                                    env: self.env,
+                                    ctx: sub_context,
+                                    auto_escape: state.auto_escape,
+                                    current_block: Some(name),
+                                    name,
+                                    current_block_type: Some(&block.block_type),
+                                };
+                                let mut output = String::new();
+
+                                self.eval_state(
+                                    &mut sub_state,
+                                    &block.instructions,
+                                    blocks.clone(),
+                                    macros.clone(),
+                                    &mut output,
+                                )?;
+                                state.ctx.store(name, Value::from(output));
+                            }
+                        }
+                    }
                 }
             }
             pc += 1;

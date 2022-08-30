@@ -415,7 +415,10 @@
 //! ```jinja
 //! {% set navigation = [('index.html', 'Index'), ('about.html', 'About')] %}
 //! ```
-//!
+//! You can use set in a block, incase you need to use various Minijinja features in the set.
+//! {% set foo %}
+//!     ...
+//! {% endset %}
 //! Please keep in mind that it is not possible to set variables inside a block
 //! and have them show up outside of it.  This also applies to loops.  The only
 //! exception to that rule are if statements which do not introduce a scope.
