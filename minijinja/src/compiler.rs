@@ -474,6 +474,11 @@ impl<'source> Compiler<'source> {
                 }
                 self.add(Instruction::BuildMap(m.keys.len()));
             }
+            ast::Expr::Slice(s) => {
+                self.set_location_from_span(s.span());
+                self.compile_expr(&s.expr)?;
+                self.add(Instruction::Slice(s.start, s.end));
+            }
         }
         Ok(())
     }
