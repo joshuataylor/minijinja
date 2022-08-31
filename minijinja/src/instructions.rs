@@ -31,6 +31,9 @@ pub enum Instruction<'source> {
     /// Looks up an attribute.
     GetAttr(&'source str),
 
+    /// Allows slicing strings and lists.
+    Slice(Option<i64>, Option<i64>),
+
     /// Looks up an item.
     GetItem,
 

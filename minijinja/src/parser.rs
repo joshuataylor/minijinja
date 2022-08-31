@@ -3,7 +3,7 @@ use crate::error::{Error, ErrorKind};
 use crate::lexer::tokenize;
 use crate::tokens::{Span, Token};
 use crate::utils::matches;
-use crate::value::Value;
+use crate::value::{Value, ValueRepr};
 
 const RESERVED_NAMES: [&str; 8] = [
     "true", "True", "false", "False", "none", "None", "loop", "self",
@@ -109,6 +109,20 @@ impl<'a> TokenStream<'a> {
 
 struct Parser<'a> {
     stream: TokenStream<'a>,
+}
+
+macro_rules! i64_value {
+    ($expr:expr) => {
+        match $expr {
+            Expr::Const(x) => match &x.value.0 {
+                ValueRepr::U64(f) => *f as i64,
+                ValueRepr::I64(f) => *f as i64,
+                ValueRepr::F64(f) => *f as i64,
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    };
 }
 
 macro_rules! binop {
@@ -289,15 +303,68 @@ impl<'a> Parser<'a> {
                 }
                 Some((Token::BracketOpen, span)) => {
                     self.stream.next()?;
-                    let subscript_expr = self.parse_expr()?;
-                    expect_token!(self, Token::BracketClose, "`]`")?;
-                    expr = ast::Expr::GetItem(Spanned::new(
-                        ast::GetItem {
-                            expr,
-                            subscript_expr,
-                        },
-                        self.stream.expand_span(span),
-                    ));
+
+                    // First, check if this is a colon -- support [:3]/[:-3] for string slices
+                    if matches!(self.stream.current()?, Some((Token::Colon, _))) {
+                        self.stream.next()?;
+                        let end = i64_value!(self.parse_expr()?);
+                        self.stream.next()?;
+
+                        expr = ast::Expr::Slice(Spanned::new(
+                            ast::Slice {
+                                expr,
+                                start: None,
+                                end: Some(end),
+                            },
+                            self.stream.expand_span(span),
+                        ));
+                    } else if matches!(self.stream.current()?, Some((Token::Int(_), _))) {
+                        // We need to rloop through until we have the current.
+                        let first_value = self.parse_expr()?;
+
+                        // what are we up to now?
+                        // if ] (close bracket) -> it's a GetItem
+                        // if a : -> it's a Slice
+                        if matches!(self.stream.current()?, Some((Token::BracketClose, _))) {
+                            expect_token!(self, Token::BracketClose, "`]`")?;
+                            expr = ast::Expr::GetItem(Spanned::new(
+                                ast::GetItem {
+                                    expr,
+                                    subscript_expr: first_value,
+                                },
+                                self.stream.expand_span(span),
+                            ));
+                        } else if matches!(self.stream.current()?, Some((Token::Colon, _))) {
+                            self.stream.next()?;
+                            let second_value =
+                                if matches!(self.stream.current()?, Some((Token::Int(_), _))) {
+                                    Some(i64_value!(self.parse_expr()?))
+                                } else {
+                                    None
+                                };
+                            expect_token!(self, Token::BracketClose, "`]`")?;
+                            expr = ast::Expr::Slice(Spanned::new(
+                                ast::Slice {
+                                    expr,
+                                    start: Some(i64_value!(first_value)),
+                                    end: second_value,
+                                },
+                                self.stream.expand_span(span),
+                            ));
+                        } else {
+                            return Err(Error::new(ErrorKind::SyntaxError, "Invalid slice"));
+                        }
+                    } else {
+                        let subscript_expr = self.parse_expr()?;
+                        expect_token!(self, Token::BracketClose, "`]`")?;
+                        expr = ast::Expr::GetItem(Spanned::new(
+                            ast::GetItem {
+                                expr,
+                                subscript_expr,
+                            },
+                            self.stream.expand_span(span),
+                        ));
+                    }
                 }
                 Some((Token::ParenOpen, span)) => {
                     let args = self.parse_args()?;
@@ -471,20 +538,20 @@ impl<'a> Parser<'a> {
             // keyword argument
             match expr {
                 ast::Expr::Var(ref var)
-                    if matches!(self.stream.current()?, Some((Token::Assign, _))) =>
-                {
-                    self.stream.next()?;
-                    if first_span.is_none() {
-                        first_span = Some(var.span());
+                if matches!(self.stream.current()?, Some((Token::Assign, _))) =>
+                    {
+                        self.stream.next()?;
+                        if first_span.is_none() {
+                            first_span = Some(var.span());
+                        }
+                        kwargs_keys.push(ast::Expr::Const(Spanned::new(
+                            ast::Const {
+                                value: Value::from(var.id),
+                            },
+                            var.span(),
+                        )));
+                        kwargs_values.push(self.parse_expr_noif()?);
                     }
-                    kwargs_keys.push(ast::Expr::Const(Spanned::new(
-                        ast::Const {
-                            value: Value::from(var.id),
-                        },
-                        var.span(),
-                    )));
-                    kwargs_values.push(self.parse_expr_noif()?);
-                }
                 _ if !kwargs_keys.is_empty() => {
                     return Err(Error::new(
                         ErrorKind::SyntaxError,

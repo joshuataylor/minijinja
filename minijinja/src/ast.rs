@@ -102,6 +102,7 @@ pub enum Expr<'a> {
     Test(Spanned<Test<'a>>),
     GetAttr(Spanned<GetAttr<'a>>),
     GetItem(Spanned<GetItem<'a>>),
+    Slice(Spanned<Slice<'a>>),
     Call(Spanned<Call<'a>>),
     List(Spanned<List<'a>>),
     Map(Spanned<Map<'a>>),
@@ -123,6 +124,7 @@ impl<'a> fmt::Debug for Expr<'a> {
             Expr::Call(s) => fmt::Debug::fmt(s, f),
             Expr::List(s) => fmt::Debug::fmt(s, f),
             Expr::Map(s) => fmt::Debug::fmt(s, f),
+            Expr::Slice(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
@@ -330,6 +332,15 @@ pub struct GetAttr<'a> {
 pub struct GetItem<'a> {
     pub expr: Expr<'a>,
     pub subscript_expr: Expr<'a>,
+}
+
+/// An item lookup expression.
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
+pub struct Slice<'a> {
+    pub expr: Expr<'a>,
+    pub start: Option<i64>,
+    pub end: Option<i64>,
 }
 
 /// Calls something.

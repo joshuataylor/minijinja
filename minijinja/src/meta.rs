@@ -12,6 +12,7 @@ use crate::ast;
 use crate::error::Error;
 use crate::parser::parse;
 
+use crate::ast::Expr;
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use crate::ast::Stmt;
@@ -118,6 +119,9 @@ pub fn find_undeclared_variables(source: &str) -> Result<HashSet<String>, Error>
                     visit_expr(key, state);
                     visit_expr(value, state);
                 }
+            }
+            Expr::Slice(expr) => {
+                visit_expr(&expr.expr, state);
             }
         }
     }

@@ -1,0 +1,14 @@
+{
+  "map": {
+    "a": "b",
+    "c": "d"
+  }
+}
+---
+{% do map|tojson %}
+
+{% macro foo() %}
+    foobar
+{% endmacro %}
+
+{% do foo() %}

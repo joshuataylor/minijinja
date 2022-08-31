@@ -543,8 +543,12 @@ impl<'source> Compiler<'source> {
                 match c.identify_call() {
                     ast::CallType::Function(name) => {
                         // This is stupid, can we just use a ref later?
-                        let found_macro: Option<Macro<'source>> = if let Some(macro_def) = self.macros.get(name) && c.args.len() >= macro_def.required_args() {
-                            Some(macro_def.clone()) // We have to do a clone here, as otherwise later we can't use compile.
+                        let found_macro: Option<Macro<'source>> = if let Some(macro_def) = self.macros.get(name) {
+                            if c.args.len() >= macro_def.required_args() {
+                                Some(macro_def.clone()) // We have to do a clone here, as otherwise later we can't use compile.
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         };
@@ -605,6 +609,11 @@ impl<'source> Compiler<'source> {
                     self.compile_expr(value)?;
                 }
                 self.add(Instruction::BuildMap(m.keys.len()));
+            }
+            ast::Expr::Slice(s) => {
+                self.set_location_from_span(s.span());
+                self.compile_expr(&s.expr)?;
+                self.add(Instruction::Slice(s.start, s.end));
             }
         }
         Ok(())
