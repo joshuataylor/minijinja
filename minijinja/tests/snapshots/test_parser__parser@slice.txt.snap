@@ -1,0 +1,267 @@
+---
+source: minijinja/tests/test_parser.rs
+expression: "&ast"
+input_file: minijinja/tests/parser-inputs/slice.txt
+---
+Ok(
+    Template {
+        children: [
+            Set {
+                target: Var {
+                    id: "foo",
+                } @ 1:7-1:10,
+                expr: Const {
+                    value: "abcdef",
+                } @ 1:13-1:21,
+            } @ 1:3-1:21,
+            EmitRaw {
+                raw: "\n",
+            } @ 1:24-2:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: Var {
+                        id: "foo",
+                    } @ 2:3-2:6,
+                    start: None,
+                    end: Some(
+                        -2,
+                    ),
+                } @ 2:6-2:11,
+            } @ 2:0-2:11,
+            EmitRaw {
+                raw: "\n",
+            } @ 2:14-3:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: Var {
+                        id: "foo",
+                    } @ 3:3-3:6,
+                    start: None,
+                    end: Some(
+                        5,
+                    ),
+                } @ 3:6-3:10,
+            } @ 3:0-3:10,
+            EmitRaw {
+                raw: "\n",
+            } @ 3:13-4:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: Var {
+                        id: "foo",
+                    } @ 4:3-4:6,
+                    start: Some(
+                        2,
+                    ),
+                    end: None,
+                } @ 4:6-4:10,
+            } @ 4:0-4:10,
+            EmitRaw {
+                raw: "\n",
+            } @ 4:13-5:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: Var {
+                        id: "foo",
+                    } @ 5:3-5:6,
+                    start: Some(
+                        -3,
+                    ),
+                    end: None,
+                } @ 5:6-5:11,
+            } @ 5:0-5:11,
+            EmitRaw {
+                raw: "\n",
+            } @ 5:14-6:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: Var {
+                        id: "foo",
+                    } @ 6:3-6:6,
+                    start: Some(
+                        3,
+                    ),
+                    end: Some(
+                        5,
+                    ),
+                } @ 6:6-6:11,
+            } @ 6:0-6:11,
+            EmitRaw {
+                raw: "\n",
+            } @ 6:14-7:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: List {
+                        items: [
+                            Const {
+                                value: 1,
+                            } @ 7:4-7:5,
+                            Const {
+                                value: 2,
+                            } @ 7:6-7:7,
+                            Const {
+                                value: 3,
+                            } @ 7:8-7:9,
+                        ],
+                    } @ 7:3-7:10,
+                    start: None,
+                    end: Some(
+                        1,
+                    ),
+                } @ 7:10-7:14,
+            } @ 7:0-7:14,
+            EmitRaw {
+                raw: "\n",
+            } @ 7:17-8:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: List {
+                        items: [
+                            Const {
+                                value: 1,
+                            } @ 8:4-8:5,
+                            Const {
+                                value: 2,
+                            } @ 8:6-8:7,
+                            Const {
+                                value: 3,
+                            } @ 8:8-8:9,
+                        ],
+                    } @ 8:3-8:10,
+                    start: Some(
+                        1,
+                    ),
+                    end: Some(
+                        2,
+                    ),
+                } @ 8:10-8:15,
+            } @ 8:0-8:15,
+            EmitRaw {
+                raw: "\n",
+            } @ 8:18-9:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: List {
+                        items: [
+                            Const {
+                                value: 1,
+                            } @ 9:4-9:5,
+                            Const {
+                                value: 2,
+                            } @ 9:6-9:7,
+                            Const {
+                                value: 3,
+                            } @ 9:8-9:9,
+                        ],
+                    } @ 9:3-9:10,
+                    start: None,
+                    end: Some(
+                        -2,
+                    ),
+                } @ 9:10-9:15,
+            } @ 9:0-9:15,
+            EmitRaw {
+                raw: "\n",
+            } @ 9:18-10:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: List {
+                        items: [
+                            Const {
+                                value: 1,
+                            } @ 10:4-10:5,
+                            Const {
+                                value: 2,
+                            } @ 10:6-10:7,
+                            Const {
+                                value: 3,
+                            } @ 10:8-10:9,
+                        ],
+                    } @ 10:3-10:10,
+                    start: Some(
+                        2,
+                    ),
+                    end: None,
+                } @ 10:10-10:14,
+            } @ 10:0-10:14,
+            EmitRaw {
+                raw: "\n",
+            } @ 10:17-11:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: List {
+                        items: [
+                            Const {
+                                value: 1,
+                            } @ 11:4-11:5,
+                            Const {
+                                value: 2,
+                            } @ 11:6-11:7,
+                            Const {
+                                value: 3,
+                            } @ 11:8-11:9,
+                        ],
+                    } @ 11:3-11:10,
+                    start: Some(
+                        -1,
+                    ),
+                    end: Some(
+                        -2,
+                    ),
+                } @ 11:10-11:17,
+            } @ 11:0-11:17,
+            EmitRaw {
+                raw: "\n",
+            } @ 11:20-12:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: List {
+                        items: [
+                            Const {
+                                value: 1,
+                            } @ 12:4-12:5,
+                            Const {
+                                value: 2,
+                            } @ 12:6-12:7,
+                            Const {
+                                value: 3,
+                            } @ 12:8-12:9,
+                        ],
+                    } @ 12:3-12:10,
+                    start: Some(
+                        -1,
+                    ),
+                    end: Some(
+                        3,
+                    ),
+                } @ 12:10-12:16,
+            } @ 12:0-12:16,
+            EmitRaw {
+                raw: "\n",
+            } @ 12:19-13:0,
+            EmitExpr {
+                expr: Slice {
+                    expr: List {
+                        items: [
+                            Const {
+                                value: 1,
+                            } @ 13:4-13:5,
+                            Const {
+                                value: 2,
+                            } @ 13:6-13:7,
+                            Const {
+                                value: 3,
+                            } @ 13:8-13:9,
+                        ],
+                    } @ 13:3-13:10,
+                    start: Some(
+                        -1,
+                    ),
+                    end: Some(
+                        -2,
+                    ),
+                } @ 13:10-13:17,
+            } @ 13:0-13:17,
+        ],
+    } @ 0:0-13:20,
+)

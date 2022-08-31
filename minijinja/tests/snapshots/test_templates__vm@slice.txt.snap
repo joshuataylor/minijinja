@@ -1,0 +1,22 @@
+---
+source: minijinja/tests/test_templates.rs
+expression: "&rendered"
+input_file: minijinja/tests/inputs/slice.txt
+---
+valid strings
+:-2 is abcdefghijklmnopqrstuvwx
+:5 is abcde
+2: is cdefghijklmnopqrstuvwxyz
+-3: is xyz
+3:5 is de
+
+valid lists
+:1 is [1]
+1:2 is [2]
+-2: is [1]
+-2: is [3]
+-2: is []
+-1:3 is [3]
+-1:-2 is []
+
+
