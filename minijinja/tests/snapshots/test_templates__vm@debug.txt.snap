@@ -26,6 +26,7 @@ State {
     },
     env: Environment {
         globals: {
+            "caller": minijinja::functions::builtins::caller,
             "debug": minijinja::functions::builtins::debug,
             "dict": minijinja::functions::builtins::dict,
             "range": minijinja::functions::builtins::range,

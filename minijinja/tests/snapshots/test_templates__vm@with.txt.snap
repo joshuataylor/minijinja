@@ -12,6 +12,12 @@ input_file: minijinja/tests/inputs/with.txt
 
 
 
-  1|2|3
+x is 2
 
+  1|2|3
+  
+  x with is 1
+
+
+x is still 2
 

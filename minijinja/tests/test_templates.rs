@@ -1,11 +1,9 @@
 use std::collections::BTreeMap;
-use std::{fmt, fs};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::fs;
 
 use minijinja::{context, Environment, Error, State};
 
 use similar_asserts::assert_eq;
-use minijinja::value::{FunctionArgs, Object, Value};
 
 #[test]
 fn test_vm() {
@@ -21,7 +19,7 @@ fn test_vm() {
         refs.push((entry.path().clone(), source));
     }
 
-    insta::glob!("inputs/macro_caller.txt", |path| {
+    insta::glob!("inputs/*", |path| {
         if !path.metadata().unwrap().is_file() {
             return;
         }
@@ -74,46 +72,4 @@ fn test_single() {
     let tmpl = env.get_template("simple").unwrap();
     let rv = tmpl.render(context!(name => "Peter")).unwrap();
     assert_eq!(rv, "Hello Peter!");
-}
-
-#[test]
-fn test_function() {
-    let mut env = Environment::new();
-    // env.add_function("cycler", make_cycler);
-    env.add_macro("{% macro foo() %}Hello{% endmacro %}");
-    env.add_template(
-        "demo.html",
-        r#"{% do foo() %}"#,
-    )
-        .unwrap();
-
-    let tmpl = env.get_template("demo.html").unwrap();
-    println!("{}", tmpl.render(&()).unwrap());
-}
-
-#[derive(Debug)]
-struct Cycler {
-    values: Vec<Value>,
-    idx: AtomicUsize,
-}
-
-impl fmt::Display for Cycler {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "cycler")
-    }
-}
-
-impl Object for Cycler {
-    fn call(&self, _state: &State, args: Vec<Value>) -> Result<Value, Error> {
-        let _: () = FunctionArgs::from_values(args)?;
-        let idx = self.idx.fetch_add(1, Ordering::Relaxed);
-        Ok(self.values[idx % self.values.len()].clone())
-    }
-}
-
-fn make_cycler(_state: &State, args: Vec<Value>) -> Result<Value, Error> {
-    Ok(Value::from_object(Cycler {
-        values: args,
-        idx: AtomicUsize::new(0),
-    }))
 }

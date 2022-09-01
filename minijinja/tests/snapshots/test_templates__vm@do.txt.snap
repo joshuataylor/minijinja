@@ -1,6 +1,5 @@
 ---
 source: minijinja/tests/test_templates.rs
-assertion_line: 49
 expression: "&rendered"
 input_file: minijinja/tests/inputs/do.txt
 ---

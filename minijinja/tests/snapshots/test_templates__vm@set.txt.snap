@@ -32,3 +32,20 @@ Conditional:
 
 was true
 
+Set Block:
+
+
+foobar begins at 
+i am first
+
+
+
+little set is set inline
+
+
+    inside with foobar is still set inline
+  foobar nv is 
+  new value
+
+original foobar is set inline
+

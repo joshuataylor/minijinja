@@ -141,6 +141,7 @@ pub(crate) fn get_globals() -> BTreeMap<&'static str, Value> {
         rv.insert("range", BoxedFunction::new(range).to_value());
         rv.insert("dict", BoxedFunction::new(dict).to_value());
         rv.insert("debug", BoxedFunction::new(debug).to_value());
+        #[cfg(feature = "macros")]
         rv.insert("caller", BoxedFunction::new(caller).to_value());
     }
     rv
@@ -222,6 +223,7 @@ mod builtins {
         Ok(format!("{:#?}", state))
     }
 
+    #[cfg(feature = "macros")]
     pub fn caller(state: &State) -> Result<Value, Error> {
         Ok(Value::from(state.lookup("_caller").unwrap()))
     }

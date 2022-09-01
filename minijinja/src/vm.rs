@@ -661,9 +661,10 @@ impl<'env> Vm<'env> {
                     state.ctx.store(name, stack.pop());
                 }
                 Instruction::Lookup(name) => {
-                    if let Some(val) = state.ctx.load(self.env, name) {
-                        stack.push(val);
-                    }
+                    // if let Some(val) = state.ctx.load(self.env, name) {
+                    //     stack.push(val);
+                    // }
+                    stack.push(state.ctx.load(self.env, name).unwrap_or(Value::UNDEFINED));
                 }
                 Instruction::GetAttr(name) => {
                     let value = stack.pop();

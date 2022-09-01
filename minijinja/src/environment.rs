@@ -333,7 +333,7 @@ impl<'source> Environment<'source> {
             filters: RcType::default(),
             tests: RcType::default(),
             globals: RcType::default(),
-            macros: Arc::new(Default::default()),
+            macros: RcType::default(),
             default_auto_escape: RcType::new(no_auto_escape),
             #[cfg(feature = "debug")]
             debug: false,
