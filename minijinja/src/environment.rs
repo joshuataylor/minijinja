@@ -549,7 +549,6 @@ impl<'source> Environment<'source> {
     }
 
     pub fn add_macro(&mut self, contents: &'source str) {
-        println!("{}", contents);
         let ast = parse(contents, "<macro>").unwrap();
         let mut compiler = Compiler::new("<macro>", contents);
         compiler.compile_stmt(&ast).unwrap();
