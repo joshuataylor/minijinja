@@ -729,6 +729,10 @@ impl<'a> Parser<'a> {
                 self.parse_do()?,
                 self.stream.expand_span(span),
             ))),
+            Token::Ident("call") => Ok(ast::Stmt::MacroCall(Spanned::new(
+                self.parse_macro_call()?,
+                self.stream.expand_span(span),
+            ))),
             Token::Ident(name) => syntax_error!("unknown statement {}", name),
             token => syntax_error!("unknown {}, expected statement", token),
         }
@@ -1038,6 +1042,18 @@ impl<'a> Parser<'a> {
         let body = self.subparse(&|tok| matches!(tok, Token::Ident("endfilter")))?;
         self.stream.next()?;
         Ok(ast::FilterBlock { filter, body })
+    }
+
+    fn parse_macro_call(&mut self) -> Result<ast::CallMacroBlock<'a>, Error> {
+        let expr = self.parse_expr()?;
+        expect_token!(self, Token::BlockEnd(..), "end of block")?;
+        let body = self.subparse(&|tok| matches!(tok, Token::Ident("endcall")))?;
+        self.stream.next()?;
+
+        Ok(ast::CallMacroBlock {
+            body,
+            expr
+        })
     }
 
     fn parse_do(&mut self) -> Result<ast::Do<'a>, Error> {

@@ -8,7 +8,7 @@ use crate::utils::matches;
 use crate::value::Value;
 use std::collections::BTreeMap;
 
-use crate::ast::Expr;
+use crate::ast::{CallType, Expr};
 #[cfg(test)]
 use similar_asserts::assert_eq;
 use crate::ast::Stmt;
@@ -308,7 +308,6 @@ impl<'source> Compiler<'source> {
             ast::Stmt::Set(set) => {
                 if let Some(block) = self.blocks.get(set.name) {
                     if block.block_type == BlockType::SetBlock {
-                        println!("removing block");
                         self.blocks.remove(set.name);
                     }
                 }
@@ -413,12 +412,30 @@ impl<'source> Compiler<'source> {
                 self.add(Instruction::StoreMacro(mc.name));
             }
             ast::Stmt::Do(dob) => {
-                // take all the expressions out now
                 self.set_location_from_span(dob.span());
                 self.add(Instruction::BeginCapture);
-                // for node in &dob.target {
                 self.compile_expr(&dob.target)?;
                 self.add(Instruction::EndCapture);
+                self.add(Instruction::Emit);
+            }
+            Stmt::MacroCall(mc) => {
+                // @todo somehow set caller here?
+                self.add(Instruction::BeginCapture);
+                // let macro_name = match &mc.expr {
+                //     Expr::Call(x) => {
+                //         match &x.expr {
+                //             Expr::Var(x) => x.id,
+                //             _ => unreachable!()
+                //         }
+                //     }
+                //     _ => unreachable!()
+                // };
+                for node in &mc.body {
+                    self.compile_stmt(node)?;
+                }
+                self.add(Instruction::EndCaptureMacro);
+                self.compile_expr(&mc.expr)?;
+
                 self.add(Instruction::Emit);
             }
         }

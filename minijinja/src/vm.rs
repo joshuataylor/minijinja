@@ -471,7 +471,7 @@ impl<'env> Vm<'env> {
             auto_escape: initial_auto_escape,
             current_block: None,
             name: instructions.name(),
-            current_block_type: None,
+            current_block_type: None
         };
         value::with_value_optimization(|| {
             self.eval_state(
@@ -1147,6 +1147,7 @@ impl<'env> Vm<'env> {
                     let found_macro = &macros.get(name).expect("No macro found");
                     let mut sub_context = Context::default();
                     sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+                    println!("{:?}", state);
 
                     let mut sub_state = State {
                         env: self.env,
@@ -1203,6 +1204,17 @@ impl<'env> Vm<'env> {
                             }
                         }
                     }
+                }
+                Instruction::EndCaptureMacro => {
+                    // if let Some(found_macro) = macros.get(name) {
+                        let captured = capture_stack.pop().unwrap();
+                        let caller = if !matches!(state.auto_escape, AutoEscape::None) {
+                            Value::from_safe_string(captured)
+                        } else {
+                            Value::from(captured)
+                        };
+                        state.ctx.store("_caller", caller);
+                    // }
                 }
             }
             pc += 1;

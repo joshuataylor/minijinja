@@ -1,0 +1,15 @@
+---
+source: minijinja/tests/test_templates.rs
+assertion_line: 49
+expression: "&rendered"
+input_file: minijinja/tests/inputs/macro_caller.txt
+---
+
+
+    hello world
+    
+    i am here to say hello
+    4
+
+
+

@@ -64,7 +64,8 @@ pub enum Stmt<'a> {
     Include(Spanned<Include<'a>>),
     AutoEscape(Spanned<AutoEscape<'a>>),
     FilterBlock(Spanned<FilterBlock<'a>>),
-    Do(Spanned<Do<'a>>)
+    Do(Spanned<Do<'a>>),
+    MacroCall(Spanned<CallMacroBlock<'a>>)
 }
 
 #[cfg(feature = "internal_debug")]
@@ -85,6 +86,7 @@ impl<'a> fmt::Debug for Stmt<'a> {
             Stmt::FilterBlock(s) => fmt::Debug::fmt(s, f),
             Stmt::Macro(s) => fmt::Debug::fmt(s, f),
             Stmt::Do(s) => fmt::Debug::fmt(s, f),
+            Stmt::MacroCall(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
@@ -133,6 +135,12 @@ impl<'a> fmt::Debug for Expr<'a> {
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
 pub struct Do<'a> {
     pub target: Expr<'a>,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+pub struct CallMacroBlock<'a> {
+    pub expr: Expr<'a>,
+    pub body: Vec<Stmt<'a>>,
 }
 
 /// Root template node.
@@ -373,7 +381,7 @@ pub enum CallType<'ast, 'source> {
     Function(&'source str),
     Method(&'ast Expr<'source>, &'source str),
     Block(&'source str),
-    Object(&'ast Expr<'source>),
+    Object(&'ast Expr<'source>)
 }
 
 impl<'a> Call<'a> {

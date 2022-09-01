@@ -213,6 +213,9 @@ pub fn find_undeclared_variables(source: &str) -> Result<HashSet<String>, Error>
                 state.pop();
             }
             ast::Stmt::Do(_) => {}
+            Stmt::MacroCall(_) => {
+                println!("macro call");
+            }
         }
     }
 
@@ -277,6 +280,7 @@ pub fn find_referenced_templates(source: &str) -> Result<HashSet<String>, Error>
             ast::Stmt::FilterBlock(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
             ast::Stmt::Macro(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
             ast::Stmt::Do(_) => {}
+            ast::Stmt::MacroCall(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
         }
     }
 

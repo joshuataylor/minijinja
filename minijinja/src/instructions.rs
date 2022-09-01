@@ -40,6 +40,7 @@ pub enum Instruction<'source> {
     /// Loads a constant value.
     LoadConst(Value),
 
+    /// Stores a macro
     StoreMacro(&'source str),
 
     /// Builds a map of the last n pairs on the stack.
@@ -170,6 +171,9 @@ pub enum Instruction<'source> {
 
     /// Ends capturing of output.
     EndCapture,
+
+    /// Ends capturing of output.
+    EndCaptureMacro,
 
     /// Calls a global function
     CallFunction(&'source str),

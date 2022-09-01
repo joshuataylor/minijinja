@@ -21,7 +21,7 @@ fn test_vm() {
         refs.push((entry.path().clone(), source));
     }
 
-    insta::glob!("inputs/do.txt", |path| {
+    insta::glob!("inputs/macro_caller.txt", |path| {
         if !path.metadata().unwrap().is_file() {
             return;
         }
