@@ -1,0 +1,9 @@
+{}
+---
+{% macro greet(first, second, third=[1,2,3]) %}
+    first is {{first}}
+    second is {{second}}
+    third is {{third}}
+{% endmacro %}
+---
+{{greet('one')}}

@@ -12,6 +12,7 @@ use crate::value::Value;
 /// to nodes, but it also ensures the nodes is heap allocated.  The
 /// latter is useful to ensure that enum variants do not cause the enum
 /// to become too large.
+#[derive(Clone, PartialEq)]
 pub struct Spanned<T> {
     node: Box<T>,
     span: Span,
@@ -63,6 +64,9 @@ pub enum Stmt<'a> {
     Include(Spanned<Include<'a>>),
     AutoEscape(Spanned<AutoEscape<'a>>),
     FilterBlock(Spanned<FilterBlock<'a>>),
+    Macro(Spanned<Macro<'a>>),
+    Do(Spanned<Do<'a>>),
+    MacroCall(Spanned<CallMacroBlock<'a>>),
 }
 
 #[cfg(feature = "internal_debug")]
@@ -82,12 +86,16 @@ impl<'a> fmt::Debug for Stmt<'a> {
             Stmt::Include(s) => fmt::Debug::fmt(s, f),
             Stmt::AutoEscape(s) => fmt::Debug::fmt(s, f),
             Stmt::FilterBlock(s) => fmt::Debug::fmt(s, f),
+            Stmt::Macro(s) => fmt::Debug::fmt(s, f),
+            Stmt::Do(s) => fmt::Debug::fmt(s, f),
+            Stmt::MacroCall(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
 
 /// An expression node.
 #[allow(clippy::enum_variant_names)]
+#[derive(Clone, PartialEq)]
 pub enum Expr<'a> {
     Var(Spanned<Var<'a>>),
     Const(Spanned<Const>),
@@ -98,9 +106,38 @@ pub enum Expr<'a> {
     Test(Spanned<Test<'a>>),
     GetAttr(Spanned<GetAttr<'a>>),
     GetItem(Spanned<GetItem<'a>>),
+    Slice(Spanned<Slice<'a>>),
     Call(Spanned<Call<'a>>),
     List(Spanned<List<'a>>),
     Map(Spanned<Map<'a>>),
+}
+
+/// Applies filters to a block.
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
+pub struct Do<'a> {
+    pub target: Expr<'a>,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+pub struct CallMacroBlock<'a> {
+    pub expr: Expr<'a>,
+    pub body: Vec<Stmt<'a>>,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
+pub struct Slice<'a> {
+    pub expr: Expr<'a>,
+    pub start: Option<i64>,
+    pub end: Option<i64>,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+pub struct Macro<'a> {
+    pub body: Vec<Stmt<'a>>,
+    pub name: &'a str,
+    pub args: Vec<(String, Expr<'a>)>,
 }
 
 #[cfg(feature = "internal_debug")]
@@ -119,6 +156,7 @@ impl<'a> fmt::Debug for Expr<'a> {
             Expr::Call(s) => fmt::Debug::fmt(s, f),
             Expr::List(s) => fmt::Debug::fmt(s, f),
             Expr::Map(s) => fmt::Debug::fmt(s, f),
+            Expr::Slice(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
@@ -179,12 +217,14 @@ pub struct Block<'a> {
 
 /// An extends block.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct Extends<'a> {
     pub name: Expr<'a>,
 }
 
 /// An include block.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct Include<'a> {
     pub name: Expr<'a>,
     pub ignore_missing: bool,
@@ -206,30 +246,35 @@ pub struct FilterBlock<'a> {
 
 /// Outputs the expression.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct EmitExpr<'a> {
     pub expr: Expr<'a>,
 }
 
 /// Outputs raw template code.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct EmitRaw<'a> {
     pub raw: &'a str,
 }
 
 /// Looks up a variable.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct Var<'a> {
     pub id: &'a str,
 }
 
 /// Loads a constant
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct Const {
     pub value: Value,
 }
 
 /// A kind of unary operator.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub enum UnaryOpKind {
     Not,
     Neg,
@@ -237,6 +282,7 @@ pub enum UnaryOpKind {
 
 /// An unary operator expression.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct UnaryOp<'a> {
     pub op: UnaryOpKind,
     pub expr: Expr<'a>,
@@ -244,6 +290,7 @@ pub struct UnaryOp<'a> {
 
 /// A kind of binary operator.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub enum BinOpKind {
     Eq,
     Ne,
@@ -266,6 +313,7 @@ pub enum BinOpKind {
 
 /// A binary operator expression.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct BinOp<'a> {
     pub op: BinOpKind,
     pub left: Expr<'a>,
@@ -274,6 +322,7 @@ pub struct BinOp<'a> {
 
 /// An if expression.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct IfExpr<'a> {
     pub test_expr: Expr<'a>,
     pub true_expr: Expr<'a>,
@@ -282,6 +331,7 @@ pub struct IfExpr<'a> {
 
 /// A filter expression.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct Filter<'a> {
     pub name: &'a str,
     pub expr: Option<Expr<'a>>,
@@ -290,6 +340,7 @@ pub struct Filter<'a> {
 
 /// A test expression.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct Test<'a> {
     pub name: &'a str,
     pub expr: Expr<'a>,
@@ -298,6 +349,7 @@ pub struct Test<'a> {
 
 /// An attribute lookup expression.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct GetAttr<'a> {
     pub expr: Expr<'a>,
     pub name: &'a str,
@@ -305,6 +357,7 @@ pub struct GetAttr<'a> {
 
 /// An item lookup expression.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct GetItem<'a> {
     pub expr: Expr<'a>,
     pub subscript_expr: Expr<'a>,
@@ -312,6 +365,7 @@ pub struct GetItem<'a> {
 
 /// Calls something.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct Call<'a> {
     pub expr: Expr<'a>,
     pub args: Vec<Expr<'a>>,
@@ -319,12 +373,14 @@ pub struct Call<'a> {
 
 /// Creates a list of values.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct List<'a> {
     pub items: Vec<Expr<'a>>,
 }
 
 /// Creates a map of values.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone, PartialEq)]
 pub struct Map<'a> {
     pub keys: Vec<Expr<'a>>,
     pub values: Vec<Expr<'a>>,

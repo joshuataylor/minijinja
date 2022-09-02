@@ -3,7 +3,7 @@ use std::fmt;
 
 use serde::Serialize;
 
-use crate::compiler::Compiler;
+use crate::compiler::{Compiler, Macro};
 use crate::error::Error;
 use crate::instructions::Instructions;
 use crate::parser::{parse, parse_expr};
@@ -12,6 +12,7 @@ use crate::value::{ArgType, FunctionArgs, RcType, Value};
 use crate::vm::Vm;
 use crate::{filters, functions, tests};
 
+use crate::ast::Expr;
 #[cfg(test)]
 use similar_asserts::assert_eq;
 
@@ -47,6 +48,7 @@ impl<'env> fmt::Debug for Template<'env> {
 pub(crate) struct CompiledTemplate<'source> {
     instructions: Instructions<'source>,
     blocks: BTreeMap<&'source str, Instructions<'source>>,
+    macros: BTreeMap<&'source str, Macro<'source>>,
 }
 
 impl<'env> fmt::Debug for CompiledTemplate<'env> {
@@ -56,6 +58,8 @@ impl<'env> fmt::Debug for CompiledTemplate<'env> {
         {
             ds.field("instructions", &self.instructions);
             ds.field("blocks", &self.blocks);
+            #[cfg(feature = "macros")]
+            ds.field("macros", &self.macros);
         }
         ds.finish()
     }
@@ -97,10 +101,11 @@ impl<'source> CompiledTemplate<'source> {
         let ast = parse(source, name)?;
         let mut compiler = Compiler::new(name, source);
         compiler.compile_stmt(&ast)?;
-        let (instructions, blocks) = compiler.finish();
+        let (instructions, blocks, macros) = compiler.finish();
         Ok(CompiledTemplate {
             blocks,
             instructions,
+            macros,
         })
     }
 }
@@ -136,6 +141,7 @@ impl<'env> Template<'env> {
             &self.compiled.instructions,
             root,
             blocks,
+            &self.compiled.macros,
             self.initial_auto_escape,
             &mut output,
         )?;
@@ -202,6 +208,7 @@ pub struct Environment<'source> {
     filters: RcType<BTreeMap<&'source str, filters::BoxedFilter>>,
     tests: RcType<BTreeMap<&'source str, tests::BoxedTest>>,
     pub(crate) globals: RcType<BTreeMap<&'source str, Value>>,
+    pub(crate) macros: RcType<BTreeMap<&'source str, (Macro<'source>, Vec<Option<Value>>)>>,
     default_auto_escape: RcType<dyn Fn(&str) -> AutoEscape + Sync + Send>,
     #[cfg(feature = "debug")]
     debug: bool,
@@ -284,11 +291,13 @@ impl<'env, 'source> Expression<'env, 'source> {
         let mut output = String::new();
         let vm = Vm::new(self.env);
         let blocks = BTreeMap::new();
+        let macros = BTreeMap::new();
         Ok(vm
             .eval(
                 &self.instructions,
                 root,
                 &blocks,
+                &macros,
                 AutoEscape::None,
                 &mut output,
             )?
@@ -308,6 +317,7 @@ impl<'source> Environment<'source> {
             filters: RcType::new(filters::get_builtin_filters()),
             tests: RcType::new(tests::get_builtin_tests()),
             globals: RcType::new(functions::get_globals()),
+            macros: RcType::new(Default::default()),
             default_auto_escape: RcType::new(default_auto_escape),
             #[cfg(feature = "debug")]
             debug: false,
@@ -324,6 +334,7 @@ impl<'source> Environment<'source> {
             filters: RcType::default(),
             tests: RcType::default(),
             globals: RcType::default(),
+            macros: RcType::default(),
             default_auto_escape: RcType::new(no_auto_escape),
             #[cfg(feature = "debug")]
             debug: false,
@@ -459,6 +470,20 @@ impl<'source> Environment<'source> {
         })
     }
 
+    pub fn _compile_expr(&self, expr: &'source Expr) -> Result<Expression<'_, 'source>, Error> {
+        let mut compiler = Compiler::new("<expression>", "macro");
+        compiler.compile_expr(&expr)?;
+        let (instructions, _, _) = compiler.finish();
+
+        attach_basic_debug_info(
+            Ok(Expression {
+                env: self,
+                instructions,
+            }),
+            "x",
+        )
+    }
+
     /// Compiles an expression.
     ///
     /// This lets one compile an expression in the template language and
@@ -473,7 +498,8 @@ impl<'source> Environment<'source> {
         let ast = parse_expr(expr)?;
         let mut compiler = Compiler::new("<expression>", expr);
         compiler.compile_expr(&ast)?;
-        let (instructions, _) = compiler.finish();
+
+        let (instructions, _, _) = compiler.finish();
         Ok(Expression {
             env: self,
             instructions,
@@ -513,6 +539,38 @@ impl<'source> Environment<'source> {
     /// Removes a test by name.
     pub fn remove_test(&mut self, name: &str) {
         RcType::make_mut(&mut self.tests).remove(name);
+    }
+
+    pub fn add_macro(&mut self, contents: &'source str) {
+        let ast = parse(contents, "<macro>").unwrap();
+        let mut compiler = Compiler::new("<macro>", contents);
+        compiler.compile_stmt(&ast).unwrap();
+        let (_, _, macros) = compiler.finish();
+        for (macro_name, found_macro) in macros {
+            // get the macro args out. this way they are cached for later.
+            let mut macro_args = Vec::with_capacity(found_macro.args.len());
+
+            // Precompile the arguments now, so we don't have to recompute them later.
+            // This is a pretty quick operation, and saves on recalculating, especially if the macro
+            // is called many times.
+            for (_, expr) in &found_macro.args {
+                let matched_expr = match expr {
+                    Expr::Map(m) => {
+                        if m.values.len() > 0 {
+                            let map_value = m.values.first().expect("Has item");
+                            let map_expression = self._compile_expr(map_value).expect("Compiled");
+                            Some(map_expression.eval(&()).expect("Expression"))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                macro_args.push(matched_expr);
+            }
+
+            RcType::make_mut(&mut self.macros).insert(macro_name, (found_macro, macro_args));
+        }
     }
 
     /// Adds a new global function.

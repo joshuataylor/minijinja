@@ -34,6 +34,18 @@ pub enum Instruction<'source> {
     /// Loads a constant value.
     LoadConst(Value),
 
+    /// Allows slicing strings and lists.
+    Slice(Option<i64>, Option<i64>),
+
+    /// Stores a macro
+    StoreMacro(&'source str),
+
+    /// Ends capturing of output.
+    EndCaptureMacro,
+
+    /// Calls a macro that is in scope
+    CallMacro(&'source str, usize),
+
     /// Builds a map of the last n pairs on the stack.
     BuildMap(usize),
 
@@ -278,7 +290,8 @@ impl<'source> Instructions<'source> {
             let name = match instr {
                 Instruction::Lookup(name)
                 | Instruction::StoreLocal(name)
-                | Instruction::CallFunction(name) => *name,
+                | Instruction::CallFunction(name)
+                | Instruction::CallMacro(name, _) => *name,
                 Instruction::PushLoop(flags) if flags & LOOP_FLAG_WITH_LOOP_VAR != 0 => "loop",
                 Instruction::PushLoop(_) | Instruction::PushWith => break,
                 _ => continue,
@@ -335,5 +348,5 @@ impl<'source> fmt::Debug for Instructions<'source> {
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn test_sizes() {
-    assert_eq!(std::mem::size_of::<Instruction>(), 32);
+    assert_eq!(std::mem::size_of::<Instruction>(), 40);
 }

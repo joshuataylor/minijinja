@@ -1,0 +1,10 @@
+{}
+---
+{% macro greet(first) %}
+    hello {{first}}
+    {{ caller() }}
+{% endmacro %}
+{% call greet('world') %}
+    i am here to say hello
+    {{2+2}}
+{% endcall %}

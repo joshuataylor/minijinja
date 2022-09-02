@@ -14,5 +14,6 @@ Compiler {
     ],
     blocks: {},
     pending_block: [],
+    macros: {},
     current_line: 0,
 }

@@ -1,0 +1,6 @@
+{}
+---
+{% macro go() %}
+    no params
+{% endmacro %}
+{{go()}}

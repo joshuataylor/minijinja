@@ -3,7 +3,7 @@ use crate::error::{Error, ErrorKind};
 use crate::lexer::tokenize;
 use crate::tokens::{Span, Token};
 use crate::utils::matches;
-use crate::value::Value;
+use crate::value::{Value, ValueRepr};
 
 const RESERVED_NAMES: [&str; 8] = [
     "true", "True", "false", "False", "none", "None", "loop", "self",
@@ -114,6 +114,20 @@ impl<'a> TokenStream<'a> {
 
 struct Parser<'a> {
     stream: TokenStream<'a>,
+}
+
+macro_rules! i64_value {
+    ($expr:expr) => {
+        match $expr {
+            ast::Expr::Const(x) => match &x.value.0 {
+                ValueRepr::U64(f) => *f as i64,
+                ValueRepr::I64(f) => *f as i64,
+                ValueRepr::F64(f) => *f as i64,
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    };
 }
 
 macro_rules! binop {
@@ -294,15 +308,68 @@ impl<'a> Parser<'a> {
                 }
                 Some((Token::BracketOpen, span)) => {
                     self.stream.next()?;
-                    let subscript_expr = self.parse_expr()?;
-                    expect_token!(self, Token::BracketClose, "`]`")?;
-                    expr = ast::Expr::GetItem(Spanned::new(
-                        ast::GetItem {
-                            expr,
-                            subscript_expr,
-                        },
-                        self.stream.expand_span(span),
-                    ));
+
+                    // First, check if this is a colon -- support [:3]/[:-3] for string slices
+                    if matches!(self.stream.current()?, Some((Token::Colon, _))) {
+                        self.stream.next()?;
+                        let end = i64_value!(self.parse_expr()?);
+                        self.stream.next()?;
+
+                        expr = ast::Expr::Slice(Spanned::new(
+                            ast::Slice {
+                                expr,
+                                start: None,
+                                end: Some(end),
+                            },
+                            self.stream.expand_span(span),
+                        ));
+                    } else if matches!(self.stream.current()?, Some((Token::Int(_), _))) {
+                        // We need to rloop through until we have the current.
+                        let first_value = self.parse_expr()?;
+
+                        // what are we up to now?
+                        // if ] (close bracket) -> it's a GetItem
+                        // if a : -> it's a Slice
+                        if matches!(self.stream.current()?, Some((Token::BracketClose, _))) {
+                            expect_token!(self, Token::BracketClose, "`]`")?;
+                            expr = ast::Expr::GetItem(Spanned::new(
+                                ast::GetItem {
+                                    expr,
+                                    subscript_expr: first_value,
+                                },
+                                self.stream.expand_span(span),
+                            ));
+                        } else if matches!(self.stream.current()?, Some((Token::Colon, _))) {
+                            self.stream.next()?;
+                            let second_value =
+                                if matches!(self.stream.current()?, Some((Token::Int(_), _))) {
+                                    Some(i64_value!(self.parse_expr()?))
+                                } else {
+                                    None
+                                };
+                            expect_token!(self, Token::BracketClose, "`]`")?;
+                            expr = ast::Expr::Slice(Spanned::new(
+                                ast::Slice {
+                                    expr,
+                                    start: Some(i64_value!(first_value)),
+                                    end: second_value,
+                                },
+                                self.stream.expand_span(span),
+                            ));
+                        } else {
+                            return Err(Error::new(ErrorKind::SyntaxError, "Invalid slice"));
+                        }
+                    } else {
+                        let subscript_expr = self.parse_expr()?;
+                        expect_token!(self, Token::BracketClose, "`]`")?;
+                        expr = ast::Expr::GetItem(Spanned::new(
+                            ast::GetItem {
+                                expr,
+                                subscript_expr,
+                            },
+                            self.stream.expand_span(span),
+                        ));
+                    }
                 }
                 Some((Token::ParenOpen, span)) => {
                     let args = self.parse_args()?;
@@ -373,6 +440,88 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(expr)
+    }
+
+    #[cfg(feature = "macros")]
+    fn parse_macro_args(&mut self) -> Result<Vec<(String, ast::Expr<'a>)>, Error> {
+        let mut args: Vec<(String, ast::Expr)> = vec![];
+        let mut first_span = None;
+
+        expect_token!(self, Token::ParenOpen, "`(`")?;
+        loop {
+            if matches!(self.stream.current()?, Some((Token::ParenClose, _))) {
+                break;
+            }
+            if !args.is_empty() {
+                expect_token!(self, Token::Comma, "`,`")?;
+            }
+            let expr = self.parse_expr()?;
+
+            // keyword argument
+            match expr {
+                ast::Expr::Var(ref var)
+                    if matches!(self.stream.current()?, Some((Token::Assign, _))) =>
+                {
+                    self.stream.next()?;
+                    if first_span.is_none() {
+                        first_span = Some(var.span());
+                    }
+                    let key = ast::Expr::Const(Spanned::new(
+                        ast::Const {
+                            value: Value::from(var.id),
+                        },
+                        var.span(),
+                    ));
+                    let value = self.parse_expr_noif()?;
+                    args.push((
+                        var.id.to_string(),
+                        ast::Expr::Map(ast::Spanned::new(
+                            ast::Map {
+                                keys: vec![key],
+                                values: vec![value],
+                            },
+                            self.stream.expand_span(first_span.unwrap()),
+                        )),
+                    ));
+                }
+                ast::Expr::Const(ref x) => {
+                    if first_span.is_none() {
+                        first_span = Some(x.span());
+                    }
+
+                    args.push((
+                        x.value.to_string(),
+                        ast::Expr::Map(ast::Spanned::new(
+                            ast::Map {
+                                keys: vec![expr],
+                                values: vec![],
+                            },
+                            self.stream.expand_span(first_span.unwrap()),
+                        )),
+                    ));
+                }
+                ast::Expr::Var(ref var) => {
+                    if first_span.is_none() {
+                        first_span = Some(var.span());
+                    }
+
+                    args.push((
+                        var.id.to_string(),
+                        ast::Expr::Map(ast::Spanned::new(
+                            ast::Map {
+                                keys: vec![expr],
+                                values: vec![],
+                            },
+                            self.stream.expand_span(first_span.unwrap()),
+                        )),
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        expect_token!(self, Token::ParenClose, "`)`")?;
+        Ok(args)
     }
 
     fn parse_args(&mut self) -> Result<Vec<ast::Expr<'a>>, Error> {
@@ -548,8 +697,21 @@ impl<'a> Parser<'a> {
                 self.parse_if_cond()?,
                 self.stream.expand_span(span),
             ))),
+            #[cfg(feature = "macros")]
+            Token::Ident("macro") => Ok(ast::Stmt::Macro(Spanned::new(
+                self.parse_macro()?,
+                self.stream.expand_span(span),
+            ))),
             Token::Ident("with") => Ok(ast::Stmt::WithBlock(Spanned::new(
                 self.parse_with_block()?,
+                self.stream.expand_span(span),
+            ))),
+            Token::Ident("do") => Ok(ast::Stmt::Do(Spanned::new(
+                self.parse_do()?,
+                self.stream.expand_span(span),
+            ))),
+            Token::Ident("call") => Ok(ast::Stmt::MacroCall(Spanned::new(
+                self.parse_macro_call()?,
                 self.stream.expand_span(span),
             ))),
             Token::Ident("set") => Ok(match self.parse_set()? {
@@ -729,6 +891,50 @@ impl<'a> Parser<'a> {
         let body = self.subparse(&|tok| matches!(tok, Token::Ident("endwith")))?;
         self.stream.next()?;
         Ok(ast::WithBlock { assignments, body })
+    }
+
+    #[cfg(feature = "macros")]
+    fn parse_macro(&mut self) -> Result<ast::Macro<'a>, Error> {
+        let (name, _span) = expect_token!(self, Token::Ident(name) => name, "identifier")?;
+
+        // expect_token!(self, Token::ParenOpen, "`(`")?;
+
+        // We now run from identifier to identifier.
+        // As macros can be defined in various ways, such as:
+        // - foo(a=32, b='bar'), we match a and b.
+        // - foo(a, foo) where there are no assignments, only names.
+        // - foo(a, b=42) where there is an assignment only on b.
+        // - foo(a=False) where a is false.
+        // - foo(a=[]) where a is [].
+        // So we try to account for all of these by iterating until Ident is found.
+        // Once this happens, we push the existing one and start the next.
+        // We try and take extra care for True/False and None, as these can be used as parameters and might not be identifiers..
+        // We finish once we hit block end.
+        let args = self.parse_macro_args()?;
+
+        expect_token!(self, Token::BlockEnd(..), "end of block")?;
+        let body = self.subparse(&|tok| matches!(tok, Token::Ident("endmacro")))?;
+        self.stream.next()?;
+
+        Ok(ast::Macro { args, body, name })
+    }
+
+    fn parse_macro_call(&mut self) -> Result<ast::CallMacroBlock<'a>, Error> {
+        let expr = self.parse_expr()?;
+        expect_token!(self, Token::BlockEnd(..), "end of block")?;
+        let body = self.subparse(&|tok| matches!(tok, Token::Ident("endcall")))?;
+        self.stream.next()?;
+
+        Ok(ast::CallMacroBlock { body, expr })
+    }
+
+    fn parse_do(&mut self) -> Result<ast::Do<'a>, Error> {
+        let expr = self.parse_expr_noif()?;
+        if !matches!(self.stream.current()?, Some((Token::BlockEnd(_), _))) {
+            // error here?
+        }
+
+        Ok(ast::Do { target: expr })
     }
 
     fn parse_set(&mut self) -> Result<SetParseResult<'a>, Error> {

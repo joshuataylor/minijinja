@@ -118,6 +118,9 @@ pub fn find_undeclared_variables(source: &str) -> Result<HashSet<String>, Error>
                     visit_expr(value, state);
                 }
             }
+            ast::Expr::Slice(expr) => {
+                visit_expr(&expr.expr, state);
+            }
         }
     }
 
@@ -201,6 +204,15 @@ pub fn find_undeclared_variables(source: &str) -> Result<HashSet<String>, Error>
                 stmt.body.iter().for_each(|x| walk(x, state));
                 state.pop();
             }
+            ast::Stmt::Macro(mc) => {
+                state.push();
+                mc.body.iter().for_each(|x| walk(x, state));
+                state.pop();
+            }
+            ast::Stmt::Do(_) => {}
+            ast::Stmt::MacroCall(_) => {
+                println!("macro call");
+            }
         }
     }
 
@@ -264,6 +276,9 @@ pub fn find_referenced_templates(source: &str) -> Result<HashSet<String>, Error>
             ast::Stmt::Include(stmt) => record_reference(&stmt.name, out),
             ast::Stmt::AutoEscape(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
             ast::Stmt::FilterBlock(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
+            ast::Stmt::Macro(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
+            ast::Stmt::Do(_) => {}
+            ast::Stmt::MacroCall(stmt) => stmt.body.iter().for_each(|x| walk(x, out)),
         }
     }
 

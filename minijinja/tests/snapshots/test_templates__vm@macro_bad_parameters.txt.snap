@@ -1,0 +1,10 @@
+---
+source: minijinja/tests/test_templates.rs
+expression: "&rendered"
+input_file: minijinja/tests/inputs/macro_bad_parameters.txt
+---
+!!!ERROR!!!
+
+Error { kind: ImpossibleOperation, detail: Some("unknown function greet"), name: Some("macro_bad_parameters.txt"), lineno: 7, source: None }
+
+

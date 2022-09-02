@@ -1,0 +1,12 @@
+---
+source: minijinja/tests/test_templates.rs
+expression: "&rendered"
+input_file: minijinja/tests/inputs/macro_parameters_named.txt
+---
+
+
+    first is one
+    second is [4, 2, 3, 4]
+    third is [1, 2, 3]
+
+

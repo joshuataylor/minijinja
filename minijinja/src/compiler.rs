@@ -27,7 +27,32 @@ pub struct Compiler<'source> {
     instructions: Instructions<'source>,
     blocks: BTreeMap<&'source str, Instructions<'source>>,
     pending_block: Vec<PendingBlock>,
+    macros: BTreeMap<&'source str, Macro<'source>>,
     current_line: usize,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone)]
+pub struct Macro<'source> {
+    pub instructions: Instructions<'source>,
+    pub args: Vec<(String, ast::Expr<'source>)>,
+}
+
+impl Macro<'_> {
+    fn required_args(&self) -> usize {
+        let mut required_args = 0;
+        for (_, expr) in self.args.iter() {
+            match expr {
+                ast::Expr::Map(k) => {
+                    if k.values.len() == 0 {
+                        required_args += 1;
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        return required_args;
+    }
 }
 
 impl<'source> Compiler<'source> {
@@ -36,6 +61,7 @@ impl<'source> Compiler<'source> {
         Compiler {
             instructions: Instructions::new(file, source),
             blocks: BTreeMap::new(),
+            macros: BTreeMap::new(),
             pending_block: Vec::new(),
             current_line: 0,
         }
@@ -290,7 +316,7 @@ impl<'source> Compiler<'source> {
                     sub_compiler.compile_stmt(node)?;
                 }
 
-                let (instructions, blocks) = sub_compiler.finish();
+                let (instructions, blocks, _) = sub_compiler.finish();
                 self.blocks.extend(blocks.into_iter());
                 self.blocks.insert(block.name, instructions);
                 self.add(Instruction::CallBlock(block.name));
@@ -322,6 +348,51 @@ impl<'source> Compiler<'source> {
                 }
                 self.add(Instruction::EndCapture);
                 self.compile_expr(&filter_block.filter)?;
+                self.add(Instruction::Emit);
+            }
+            ast::Stmt::Macro(mc) => {
+                self.set_location_from_span(mc.span());
+
+                let mut sub_compiler =
+                    Compiler::new(self.instructions.name(), self.instructions.source());
+
+                for node in &mc.body {
+                    sub_compiler.compile_stmt(node)?;
+                }
+                let (instructions, _blocks, _) = sub_compiler.finish();
+
+                let block = Macro {
+                    instructions: instructions.clone(),
+                    args: mc.args.clone(),
+                };
+                self.macros.insert(mc.name, block);
+                self.add(Instruction::StoreMacro(mc.name));
+            }
+            ast::Stmt::Do(dob) => {
+                self.set_location_from_span(dob.span());
+                self.add(Instruction::BeginCapture);
+                self.compile_expr(&dob.target)?;
+                self.add(Instruction::EndCapture);
+                self.add(Instruction::Emit);
+            }
+            ast::Stmt::MacroCall(mc) => {
+                // @todo somehow set caller here?
+                self.add(Instruction::BeginCapture);
+                // let macro_name = match &mc.expr {
+                //     Expr::Call(x) => {
+                //         match &x.expr {
+                //             Expr::Var(x) => x.id,
+                //             _ => unreachable!()
+                //         }
+                //     }
+                //     _ => unreachable!()
+                // };
+                for node in &mc.body {
+                    self.compile_stmt(node)?;
+                }
+                self.add(Instruction::EndCaptureMacro);
+                self.compile_expr(&mc.expr)?;
+
                 self.add(Instruction::Emit);
             }
         }
@@ -445,11 +516,41 @@ impl<'source> Compiler<'source> {
                 self.set_location_from_span(c.span());
                 match c.identify_call() {
                     ast::CallType::Function(name) => {
-                        for arg in &c.args {
-                            self.compile_expr(arg)?;
-                        }
-                        self.add(Instruction::BuildList(c.args.len()));
-                        self.add(Instruction::CallFunction(name));
+                        // This is stupid, can we just use a ref later?
+                        let found_macro: Option<Macro<'source>> =
+                            if let Some(macro_def) = self.macros.get(name) {
+                                if c.args.len() >= macro_def.required_args() {
+                                    Some(macro_def.clone()) // We have to do a clone here, as otherwise later we can't use compile.
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+                        match found_macro {
+                            None => {
+                                for arg in &c.args {
+                                    self.compile_expr(arg)?;
+                                }
+                                self.add(Instruction::BuildList(c.args.len()));
+                                self.add(Instruction::CallFunction(name));
+                            }
+                            Some(found) => {
+                                for (index, (_key, value)) in found.args.iter().enumerate().rev() {
+                                    let matched_expr = match c.args.get(index) {
+                                        None => match value {
+                                            ast::Expr::Map(m) => {
+                                                m.values.first().expect("Has item")
+                                            }
+                                            _ => unreachable!(),
+                                        },
+                                        Some(a) => a,
+                                    };
+                                    self.compile_expr(matched_expr)?;
+                                }
+                                self.add(Instruction::CallMacro(name, c.args.len()));
+                            }
+                        };
                     }
                     ast::CallType::Block(name) => {
                         self.add(Instruction::BeginCapture);
@@ -486,6 +587,11 @@ impl<'source> Compiler<'source> {
                 }
                 self.add(Instruction::BuildMap(m.keys.len()));
             }
+            ast::Expr::Slice(s) => {
+                self.set_location_from_span(s.span());
+                self.compile_expr(&s.expr)?;
+                self.add(Instruction::Slice(s.start, s.end));
+            }
         }
         Ok(())
     }
@@ -496,8 +602,9 @@ impl<'source> Compiler<'source> {
     ) -> (
         Instructions<'source>,
         BTreeMap<&'source str, Instructions<'source>>,
+        BTreeMap<&'source str, Macro<'source>>,
     ) {
         assert!(self.pending_block.is_empty());
-        (self.instructions, self.blocks)
+        (self.instructions, self.blocks, self.macros)
     }
 }
