@@ -517,11 +517,13 @@ impl<'source> Environment<'source> {
         let mut output = String::new();
         let vm = Vm::new(self);
         let blocks = &compiled.blocks;
+        let macros = &compiled.macros;
         let initial_auto_escape = self.get_initial_auto_escape(name);
         vm.eval(
             &compiled.instructions,
             root,
             blocks,
+            macros,
             initial_auto_escape,
             &mut output,
         )?;
