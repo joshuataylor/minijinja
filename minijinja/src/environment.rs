@@ -605,9 +605,9 @@ impl<'source> Environment<'source> {
         RcType::make_mut(&mut self.tests).remove(name);
     }
 
-    pub fn add_macro(&mut self, contents: &'source str) {
-        let ast = parse(contents, "<macro>").unwrap();
-        let mut compiler = Compiler::new("<macro>", contents);
+    pub fn add_macro(&mut self, name: &'source str, contents: &'source str) {
+        let ast = parse(contents, name).unwrap();
+        let mut compiler = Compiler::new(name, contents);
         compiler.compile_stmt(&ast).unwrap();
         let (_, _, macros) = compiler.finish();
         for (macro_name, found_macro) in macros {

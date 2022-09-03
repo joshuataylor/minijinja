@@ -1,4 +1,4 @@
-use crate::ast::{self, Spanned};
+use crate::ast::{self, Expr, Spanned, UnaryOpKind};
 use crate::error::{Error, ErrorKind};
 use crate::lexer::tokenize;
 use crate::tokens::{Span, Token};
@@ -128,6 +128,22 @@ macro_rules! i64_value {
             _ => unreachable!(),
         }
     };
+}
+
+macro_rules! i64_unary {
+    ($expr:expr) => {
+        match $expr {
+            Expr::Const(_) => i64_value!($expr),
+            Expr::UnaryOp(x) => {
+                let v = i64_value!(&x.expr);
+                match x.op {
+                    UnaryOpKind::Neg => -v,
+                    UnaryOpKind::Not => return Err(Error::new(ErrorKind::SyntaxError, "Invalid slice"))
+                }
+            }
+            _ => return Err(Error::new(ErrorKind::SyntaxError, "Invalid slice"))
+        }
+    }
 }
 
 macro_rules! binop {
@@ -312,14 +328,18 @@ impl<'a> Parser<'a> {
                     // First, check if this is a colon -- support [:3]/[:-3] for string slices
                     if matches!(self.stream.current()?, Some((Token::Colon, _))) {
                         self.stream.next()?;
-                        let end = i64_value!(self.parse_expr()?);
+                        // This code is am absolute mess, because the code changed and I haven't had time to update it yet.
+                        let expr2 = self.parse_expr()?;
+
+                        let i64_value = i64_unary!(expr2);
+
                         self.stream.next()?;
 
                         expr = ast::Expr::Slice(Spanned::new(
                             ast::Slice {
                                 expr,
                                 start: None,
-                                end: Some(end),
+                                end: Some(i64_value),
                             },
                             self.stream.expand_span(span),
                         ));
@@ -361,14 +381,43 @@ impl<'a> Parser<'a> {
                         }
                     } else {
                         let subscript_expr = self.parse_expr()?;
-                        expect_token!(self, Token::BracketClose, "`]`")?;
-                        expr = ast::Expr::GetItem(Spanned::new(
-                            ast::GetItem {
-                                expr,
-                                subscript_expr,
-                            },
-                            self.stream.expand_span(span),
-                        ));
+                        // is the next token a colon?
+                        if matches!(self.stream.current()?, Some((Token::Colon, _))) {
+                            self.stream.next()?;
+
+                            let second_value =
+                                if matches!(self.stream.current()?, Some((Token::Int(_), _))) {
+                                    Some(i64_value!(self.parse_expr()?))
+                                } else if matches!(self.stream.current()?, Some((Token::Minus, _))) {
+                                    // Parse the expression, treat it same as first value later.
+                                    let subscript_expr2 = self.parse_expr()?;
+                                    Some(i64_unary!(subscript_expr2))
+                                } else {
+                                    None
+                                };
+
+                            // get the value out.
+                            let i64_value = i64_unary!(subscript_expr);
+
+                            expect_token!(self, Token::BracketClose, "`]`")?;
+                            expr = ast::Expr::Slice(Spanned::new(
+                                ast::Slice {
+                                    expr,
+                                    start: Some(i64_value),
+                                    end: second_value,
+                                },
+                                self.stream.expand_span(span),
+                            ));
+                        } else {
+                            expect_token!(self, Token::BracketClose, "`]`")?;
+                            expr = ast::Expr::GetItem(Spanned::new(
+                                ast::GetItem {
+                                    expr,
+                                    subscript_expr,
+                                },
+                                self.stream.expand_span(span),
+                            ));
+                        }
                     }
                 }
                 Some((Token::ParenOpen, span)) => {
