@@ -511,6 +511,24 @@ impl<'source> Environment<'source> {
         self._render_str(source, Value::from_serializable(&ctx))
     }
 
+    pub fn render_str_name<S: Serialize>(&self, source: &str, name: &str, ctx: S) -> Result<String, Error> {
+        let root = Value::from_serializable(&ctx);
+        let compiled = CompiledTemplate::from_name_and_source(name, source)?;
+        let mut output = String::new();
+        let vm = Vm::new(self);
+        let blocks = &compiled.blocks;
+        let macros = &compiled.macros;
+        let initial_auto_escape = self.get_initial_auto_escape(name);
+        vm.eval(
+            &compiled.instructions,
+            root,
+            blocks,
+            macros,
+            initial_auto_escape,
+            &mut output,
+        )?;
+        Ok(output)
+    }
     fn _render_str(&self, source: &str, root: Value) -> Result<String, Error> {
         let name = "<string>";
         let compiled = CompiledTemplate::from_name_and_source(name, source)?;
