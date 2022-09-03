@@ -49,6 +49,10 @@
 //! Hello John!
 //! ```
 //!
+//! For super trivial cases where you need to render a string once, you can
+//! also use the [`render!`] macro which acts a bit like a replacement
+//! for the [`format!`] macro.
+//!
 //! # Expression Usage
 //!
 //! MiniJinja — like Jinja2 — allows to be used as expression language.  This can be
@@ -97,7 +101,8 @@
 //! - `speedups`: enables all speedups (currently `v_htmlescape`)
 //! - `unstable_machinery`: provides access to the internal machinery of the engine.  This
 //!   is a forever unstable API which mainly exists to aid debugging complex issues.
-//! - `json`: When enabled the `tojson` filter is added as builtin filter.
+//! - `json`: When enabled the `tojson` filter is added as builtin filter as well as
+//!   the ability to auto escape via `AutoEscape::Json`.
 //! - `urlencode`: When enabled the `urlencode` filter is added as builtin filter.
 //! - `preserve_order`: When enable the internal value implementation uses an indexmap
 //!   which preserves the original order of maps and structs.
@@ -110,7 +115,8 @@
 //! - `sync`: this feature makes MiniJinja's type `Send` and `Sync`.  If this feature
 //!   is disabled sending types across threads is often not possible.  Thread bounds
 //!   of things like callbacks however are not changing which means code that uses
-//!   MiniJinja still needs to be threadsafe.
+//!   MiniJinja still needs to be threadsafe.  This also disables some features that
+//!   require synchronization such as the `loop.changed` feature.
 //! - `debug`: if this feature is removed some debug functionality of the engine is
 //!   removed as well.  This mainly affects the quality of error reporting.
 //! - `key_interning`: if this feature is removed the automatic string interning in
@@ -126,11 +132,11 @@ mod key;
 
 mod ast;
 mod compiler;
-mod context;
 mod environment;
 mod error;
 mod instructions;
 mod lexer;
+mod macros;
 mod parser;
 mod tokens;
 mod utils;
@@ -159,7 +165,7 @@ pub use self::error::DebugInfo;
 #[cfg(feature = "source")]
 pub use self::source::Source;
 
-pub use self::context::*;
+pub use self::macros::__context;
 pub use self::vm::State;
 
 /// This module gives access to the low level machinery.

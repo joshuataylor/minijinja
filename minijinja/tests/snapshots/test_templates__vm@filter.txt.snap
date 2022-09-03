@@ -1,6 +1,8 @@
 ---
 source: minijinja/tests/test_templates.rs
-expression: "&rendered"
+description: "{{ value|upper }}"
+info:
+  value: foo bar baz
 input_file: minijinja/tests/inputs/filter.txt
 ---
 FOO BAR BAZ

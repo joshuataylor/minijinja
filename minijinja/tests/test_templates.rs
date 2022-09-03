@@ -27,6 +27,10 @@ fn test_vm() {
         let contents = std::fs::read_to_string(path).unwrap();
         let mut iter = contents.splitn(2, "\n---\n");
         let mut env = Environment::new();
+        #[cfg(feature = "debug")]
+        {
+            env.set_debug(false);
+        }
         let ctx: serde_json::Value = serde_json::from_str(iter.next().unwrap()).unwrap();
 
         for (path, source) in &refs {
@@ -34,17 +38,24 @@ fn test_vm() {
             env.add_template(ref_filename, source).unwrap();
         }
 
-        env.add_template(filename, iter.next().unwrap()).unwrap();
+        let content = iter.next().unwrap();
+        env.add_template(filename, content).unwrap();
         let template = env.get_template(filename).unwrap();
         dbg!(&template);
 
-        let mut rendered = match template.render(ctx) {
+        let mut rendered = match template.render(&ctx) {
             Ok(rendered) => rendered,
             Err(err) => format!("!!!ERROR!!!\n\n{:?}\n", err),
         };
         rendered.push('\n');
 
-        insta::assert_snapshot!(&rendered);
+        insta::with_settings!({
+            info => &ctx,
+            description => content.trim_end(),
+            omit_expression => true
+        }, {
+            insta::assert_snapshot!(&rendered);
+        });
     });
 }
 
@@ -106,4 +117,18 @@ fn test_auto_escaping() {
     let tmpl = env.get_template("index.txt").unwrap();
     let rv = tmpl.render(context!(var => "foo\"bar'baz")).unwrap();
     insta::assert_snapshot!(rv, @r###"foo"bar'baz"###);
+}
+
+#[cfg(feature = "sync")]
+#[test]
+fn test_loop_changed() {
+    let rv = minijinja::render!(
+        r#"
+        {%- for i in items -%}
+          {% if loop.changed(i) %}{{ i }}{% endif %}
+        {%- endfor -%}
+        "#,
+        items => vec![1, 1, 1, 2, 3, 4, 4, 5],
+    );
+    assert_eq!(rv, "12345");
 }

@@ -7,13 +7,16 @@ build:
 	@cargo build --all
 
 doc:
-	@RUSTC_BOOTSTRAP=1 RUSTDOCFLAGS="--cfg=docsrs --html-in-header doc-header.html" cargo doc --no-deps --all --features=$(DOC_FEATURES)
+	@cd minijinja; RUSTC_BOOTSTRAP=1 RUSTDOCFLAGS="--cfg=docsrs --html-in-header doc-header.html" cargo doc --no-deps --features=$(DOC_FEATURES)
 
 test:
 	@$(MAKE) run-tests FEATURES=$(TEST_FEATURES)
 	@$(MAKE) run-tests FEATURES=$(TEST_FEATURES),preserve_order,key_interning
 	@echo "CARGO TEST ALL FEATURES"
 	@cd minijinja; cargo test --all-features
+
+snapshot-tests:
+	@cd minijinja; cargo insta test --all-features --review
 
 run-tests:
 	@rustup component add rustfmt 2> /dev/null
@@ -42,4 +45,4 @@ lint:
 	@rustup component add clippy 2> /dev/null
 	@cargo clippy --all -- -F clippy::dbg-macro
 
-.PHONY: all doc test run-tests format format-check lint check
+.PHONY: all doc test run-tests format format-check lint check snapshot-tests

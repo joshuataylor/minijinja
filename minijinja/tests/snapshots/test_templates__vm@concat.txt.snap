@@ -1,6 +1,9 @@
 ---
 source: minijinja/tests/test_templates.rs
-expression: "&rendered"
+description: "{{ a ~ b }}"
+info:
+  a: foo
+  b: bar
 input_file: minijinja/tests/inputs/concat.txt
 ---
 foobar

@@ -308,9 +308,10 @@ impl<'env, 'source> Expression<'env, 'source> {
 impl<'source> Environment<'source> {
     /// Creates a new environment with sensible defaults.
     ///
-    /// This environment does not yet contain any templates but it will have all the
-    /// default filters loaded.  If you do not want any default configuration you
-    /// can use the alternative [`empty`](Environment::empty) method.
+    /// This environment does not yet contain any templates but it will have all
+    /// the default filters, tests and globals loaded.  If you do not want any
+    /// default configuration you can use the alternative
+    /// [`empty`](Environment::empty) method.
     pub fn new() -> Environment<'source> {
         Environment {
             templates: Source::Borrowed(Default::default()),
@@ -320,14 +321,14 @@ impl<'source> Environment<'source> {
             macros: RcType::new(Default::default()),
             default_auto_escape: RcType::new(default_auto_escape),
             #[cfg(feature = "debug")]
-            debug: false,
+            debug: cfg!(debug_assertions),
         }
     }
 
     /// Creates a completely empty environment.
     ///
-    /// This environment has no filters, no templates and no default logic for
-    /// auto escaping configured.
+    /// This environment has no filters, no templates, no globals and no default
+    /// logic for auto escaping configured.
     pub fn empty() -> Environment<'source> {
         Environment {
             templates: Source::Borrowed(Default::default()),
@@ -337,7 +338,7 @@ impl<'source> Environment<'source> {
             macros: RcType::default(),
             default_auto_escape: RcType::new(no_auto_escape),
             #[cfg(feature = "debug")]
-            debug: false,
+            debug: cfg!(debug_assertions),
         }
     }
 
@@ -374,7 +375,8 @@ impl<'source> Environment<'source> {
     /// return a [`DebugInfo`](crate::error::DebugInfo) object from
     /// [`Error::debug_info`](crate::error::Error::debug_info).
     ///
-    /// This requires the `debug` feature.
+    /// This requires the `debug` feature.  This is enabled by default if
+    /// debug assertions are enabled and false otherwise.
     #[cfg(feature = "debug")]
     #[cfg_attr(docsrs, doc(cfg(feature = "debug")))]
     pub fn set_debug(&mut self, enabled: bool) {
@@ -454,6 +456,14 @@ impl<'source> Environment<'source> {
     /// This requires that the template has been loaded with
     /// [`add_template`](Environment::add_template) beforehand.  If the template was
     /// not loaded an error of kind `TemplateNotFound` is returned.
+    ///
+    /// ```
+    /// # use minijinja::{Environment, context};
+    /// let mut env = Environment::new();
+    /// env.add_template("hello.txt", "Hello {{ name }}!").unwrap();
+    /// let tmpl = env.get_template("hello.txt").unwrap();
+    /// println!("{}", tmpl.render(context!{ name => "World" }).unwrap());
+    /// ```
     pub fn get_template(&self, name: &str) -> Result<Template<'_>, Error> {
         let compiled = match &self.templates {
             Source::Borrowed(ref map) => map
@@ -482,6 +492,40 @@ impl<'source> Environment<'source> {
             }),
             "x",
         )
+    }
+
+    /// Parses and renders a template from a string in one go.
+    ///
+    /// In some cases you really only need a template to be rendered once from
+    /// a string and returned.  The internal name of the template is `<string>`.
+    ///
+    /// ```
+    /// # use minijinja::{Environment, context};
+    /// let env = Environment::new();
+    /// let rv = env.render_str("Hello {{ name }}", context! { name => "World" });
+    /// println!("{}", rv.unwrap());
+    /// ```
+    pub fn render_str<S: Serialize>(&self, source: &str, ctx: S) -> Result<String, Error> {
+        // reduce total amount of code faling under mono morphization into
+        // this function, and share the rest in _eval.
+        self._render_str(source, Value::from_serializable(&ctx))
+    }
+
+    fn _render_str(&self, source: &str, root: Value) -> Result<String, Error> {
+        let name = "<string>";
+        let compiled = CompiledTemplate::from_name_and_source(name, source)?;
+        let mut output = String::new();
+        let vm = Vm::new(self);
+        let blocks = &compiled.blocks;
+        let initial_auto_escape = self.get_initial_auto_escape(name);
+        vm.eval(
+            &compiled.instructions,
+            root,
+            blocks,
+            initial_auto_escape,
+            &mut output,
+        )?;
+        Ok(output)
     }
 
     /// Compiles an expression.
