@@ -1,6 +1,7 @@
 ---
 source: minijinja/tests/test_templates.rs
-expression: "&rendered"
+description: "{% macro greet(first, second, third=[1,2,3]) %}\n    first is {{first}}\n    second is {{second}}\n    third is {{third}}\n{% endmacro %}\n{{greet('one', [4,2,3,4])}}\n\n{% macro second(param) %}\n    second macro goes {{param}}\n{% endmacro %}\n\n{% macro test(my_param = second('hello')) %}\n    hello {{my_param}}\n{% endmacro %}\n\n{{ test() }}\n{{ test('foo') }}"
+info: {}
 input_file: minijinja/tests/inputs/macro_parameters_named.txt
 ---
 
@@ -8,5 +9,18 @@ input_file: minijinja/tests/inputs/macro_parameters_named.txt
     first is one
     second is [4, 2, 3, 4]
     third is [1, 2, 3]
+
+
+
+
+
+
+
+    hello 
+    second macro goes hello
+
+
+
+    hello foo
 
 
