@@ -611,7 +611,7 @@ impl<'source> Environment<'source> {
         self.tests.remove(name);
     }
 
-    pub fn add_macro(&mut self, name: &'source str, contents: &'source str) {
+    pub fn add_macro(&mut self, prefix: &'source str, name: &'source str, contents: &'source str) {
         let ast = parse(contents, name).unwrap();
         let mut compiler = Compiler::new(name, contents);
         compiler.compile_stmt(&ast).unwrap();
@@ -627,6 +627,7 @@ impl<'source> Environment<'source> {
                 let matched_expr = match expr {
                     Expr::Map(m) => {
                         if m.values.len() > 0 {
+                            println!("{:#?}", m);
                             let map_value = m.values.first().expect("Has item");
                             let map_expression = self._compile_expr(map_value).expect("Compiled");
                             Some(map_expression.eval(&()).expect("Expression"))
