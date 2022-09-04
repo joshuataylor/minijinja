@@ -35,7 +35,7 @@ pub enum Instruction<'source> {
     LoadConst(Value),
 
     /// Allows slicing strings and lists.
-    Slice(Option<i64>, Option<i64>),
+    Slice(bool, bool),
 
     /// Stores a macro
     StoreMacro(&'source str),
@@ -348,5 +348,5 @@ impl<'source> fmt::Debug for Instructions<'source> {
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn test_sizes() {
-    assert_eq!(std::mem::size_of::<Instruction>(), 40);
+    assert_eq!(std::mem::size_of::<Instruction>(), 32);
 }

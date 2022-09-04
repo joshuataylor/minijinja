@@ -129,8 +129,8 @@ pub struct CallMacroBlock<'a> {
 #[derive(Clone, PartialEq)]
 pub struct Slice<'a> {
     pub expr: Expr<'a>,
-    pub start: Option<i64>,
-    pub end: Option<i64>,
+    pub start: Option<Expr<'a>>,
+    pub end: Option<Expr<'a>>,
 }
 
 #[cfg_attr(feature = "internal_debug", derive(Debug))]

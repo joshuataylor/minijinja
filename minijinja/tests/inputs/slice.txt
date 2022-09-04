@@ -1,5 +1,6 @@
 {
-  "foo": "abcdefghijklmnopqrstuvwxyz"
+  "foo": "abcdefghijklmnopqrstuvwxyz",
+  "test_var": "foo"
 }
 ---
 valid strings
@@ -17,3 +18,9 @@ valid lists
 -2: is {{ [1,2,3][-1:-2] }}
 -1:3 is {{ [1,2,3][-1:3] }}
 -1:-2 is {{ [1,2,3][-1:-2] }}
+
+slicing variables
+{{ foo[(test_var|length):] }}
+{{ foo[1:(test_var|length)] }}
+{{ foo[(test_var|length):-1] }}
+{{ foo[(test_var|length):5] }}

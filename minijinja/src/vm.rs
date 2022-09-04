@@ -1078,82 +1078,82 @@ impl<'env> Vm<'env> {
                     recurse_loop!(false);
                 }
                 Instruction::Nop => {}
-                Instruction::Slice(start, end) => {
-                    let val = stack.pop();
-                    match val.0 {
-                        ValueRepr::String(string) | ValueRepr::SafeString(string) => {
-                            let length = string.len();
-
-                            // If there is a start index, but there is no end index, take from the start index to the end of the String.
-                            // If there both a start index and an end number, take from the supplied start index to the end index.
-                            // If there is no start index, but there is a start number, take from String length minus start index to the end of the Vec.
-                            let return_value = match (start, end) {
-                                (Some(s), None) if *s > 0 => {
-                                    match string.get(*s as usize..length) {
-                                        None => "",
-                                        Some(x) => x,
-                                    }
-                                }
-                                (Some(s), None) if *s < 0 => {
-                                    match string.get(length - s.abs() as usize..length) {
-                                        None => "",
-                                        Some(x) => x,
-                                    }
-                                }
-                                (Some(s), Some(_e)) if *s < 0 => "",
-                                (Some(s), Some(e)) if *s >= 0 => {
-                                    match string.get(*s as usize..*e as usize) {
-                                        None => "",
-                                        Some(x) => x,
-                                    }
-                                }
-                                (None, Some(e)) if *e >= 0 => match string.get(0..*e as usize) {
-                                    None => "",
-                                    Some(x) => x,
-                                },
-                                (None, Some(e)) if *e < 0 => {
-                                    match string.get(0..length - (e.abs() as usize)) {
-                                        None => "",
-                                        Some(x) => x,
-                                    }
-                                }
-                                _ => "",
-                            };
-
-                            stack.push(Value::from(return_value));
-                        }
-                        ValueRepr::Seq(items) => {
-                            let length = items.len();
-
-                            // If there is a start index, but there is no end index, take from the start index to the end of the Vec.
-                            // If there both a start index and an end number, take from the supplied start index to the end index.
-                            // If there is no start index, but there is a start number, take from Vec length minus start index to the end of the Vec.
-                            let return_value = match (start, end) {
-                                (Some(s), None) => &items[*s as usize..length],
-                                (Some(s), Some(e)) if (*s < 0 && *e < 0) => &[],
-                                (Some(s), Some(e)) if (*s > 0 && *e < 0) => {
-                                    &items[*s as usize..(length as i64 - e) as usize]
-                                }
-                                (Some(s), Some(e)) if (*e > length as i64) => {
-                                    &items[*s as usize..length]
-                                }
-                                (Some(s), Some(e)) if (*s < 0 && *e > 0) => {
-                                    &items[(length as i64 - s.abs()) as usize..*e as usize]
-                                }
-                                (Some(s), Some(e)) => &items[*s as usize..*e as usize],
-                                (None, Some(e)) if *e > 0 => &items[0..*e as usize],
-                                (None, Some(e)) => &items[0..length - (e.abs() as usize)],
-                                _ => &[],
-                            };
-
-                            stack.push(Value::from(return_value.to_vec()));
-                        }
-                        _ => bail!(Error::new(
-                            ErrorKind::ImpossibleOperation,
-                            "Slice can only be on a string or a sequence"
-                        )),
-                    }
-                }
+                // Instruction::Slice(start, end) => {
+                //     let val = stack.pop();
+                //     match val.0 {
+                //         ValueRepr::String(string) | ValueRepr::SafeString(string) => {
+                //             let length = string.len();
+                //
+                //             // If there is a start index, but there is no end index, take from the start index to the end of the String.
+                //             // If there both a start index and an end number, take from the supplied start index to the end index.
+                //             // If there is no start index, but there is a start number, take from String length minus start index to the end of the Vec.
+                //             let return_value = match (start, end) {
+                //                 (Some(s), None) if *s > 0 => {
+                //                     match string.get(*s as usize..length) {
+                //                         None => "",
+                //                         Some(x) => x,
+                //                     }
+                //                 }
+                //                 (Some(s), None) if *s < 0 => {
+                //                     match string.get(length - s.abs() as usize..length) {
+                //                         None => "",
+                //                         Some(x) => x,
+                //                     }
+                //                 }
+                //                 (Some(s), Some(_e)) if *s < 0 => "",
+                //                 (Some(s), Some(e)) if *s >= 0 => {
+                //                     match string.get(*s as usize..*e as usize) {
+                //                         None => "",
+                //                         Some(x) => x,
+                //                     }
+                //                 }
+                //                 (None, Some(e)) if *e >= 0 => match string.get(0..*e as usize) {
+                //                     None => "",
+                //                     Some(x) => x,
+                //                 },
+                //                 (None, Some(e)) if *e < 0 => {
+                //                     match string.get(0..length - (e.abs() as usize)) {
+                //                         None => "",
+                //                         Some(x) => x,
+                //                     }
+                //                 }
+                //                 _ => "",
+                //             };
+                //
+                //             stack.push(Value::from(return_value));
+                //         }
+                //         ValueRepr::Seq(items) => {
+                //             let length = items.len();
+                //
+                //             // If there is a start index, but there is no end index, take from the start index to the end of the Vec.
+                //             // If there both a start index and an end number, take from the supplied start index to the end index.
+                //             // If there is no start index, but there is a start number, take from Vec length minus start index to the end of the Vec.
+                //             let return_value = match (start, end) {
+                //                 (Some(s), None) => &items[*s as usize..length],
+                //                 (Some(s), Some(e)) if (*s < 0 && *e < 0) => &[],
+                //                 (Some(s), Some(e)) if (*s > 0 && *e < 0) => {
+                //                     &items[*s as usize..(length as i64 - e) as usize]
+                //                 }
+                //                 (Some(s), Some(e)) if (*e > length as i64) => {
+                //                     &items[*s as usize..length]
+                //                 }
+                //                 (Some(s), Some(e)) if (*s < 0 && *e > 0) => {
+                //                     &items[(length as i64 - s.abs()) as usize..*e as usize]
+                //                 }
+                //                 (Some(s), Some(e)) => &items[*s as usize..*e as usize],
+                //                 (None, Some(e)) if *e > 0 => &items[0..*e as usize],
+                //                 (None, Some(e)) => &items[0..length - (e.abs() as usize)],
+                //                 _ => &[],
+                //             };
+                //
+                //             stack.push(Value::from(return_value.to_vec()));
+                //         }
+                //         _ => bail!(Error::new(
+                //             ErrorKind::ImpossibleOperation,
+                //             "Slice can only be on a string or a sequence"
+                //         )),
+                //     }
+                // }
                 Instruction::StoreMacro(_) => {}
                 Instruction::EndCaptureMacro => {
                     // if let Some(found_macro) = macros.get(name) {
@@ -1193,6 +1193,122 @@ impl<'env> Vm<'env> {
                     )?;
 
                     stack.push(Value::from(output));
+                }
+                Instruction::Slice(has_start, has_finish) => {
+                    let value = stack.pop();
+                    let start = if *has_start {
+                        let x = stack.pop();
+                        let s = match x.0 {
+                            ValueRepr::U64(x) => x as i128,
+                            ValueRepr::I64(x) => x as i128,
+                            ValueRepr::F64(x) => x as i128,
+                            // ValueRepr::U128(x) => x as i128,
+                            ValueRepr::I128(x) => *x,
+                            x => {
+                                println!("was given.. {:?}", x);
+                                unreachable!()
+                            }
+                        };
+                        Some(s)
+                    } else {
+                        None
+                    };
+                    let end = if *has_finish {
+                        let x = stack.pop();
+                        let s = match x.0 {
+                            ValueRepr::U64(x) => x as i128,
+                            ValueRepr::I64(x) => x as i128,
+                            ValueRepr::F64(x) => x as i128,
+                            // ValueRepr::U128(x) => x as i128,
+                            ValueRepr::I128(x) => *x,
+                            _ => unreachable!()
+                        };
+                        Some(s)
+                    } else {
+                        None
+                    };
+
+                    match value.0 {
+                        ValueRepr::String(string) | ValueRepr::SafeString(string) => {
+                            let length = string.len();
+
+                            // If there is a start index, but there is no end index, take from the start index to the end of the String.
+                            // If there both a start index and an end number, take from the supplied start index to the end index.
+                            // If there is no start index, but there is a start number, take from String length minus start index to the end of the Vec.
+                            let return_value = match (start, end) {
+                                (Some(s), None) if s > 0 => {
+                                    match string.get(s as usize..length) {
+                                        None => "",
+                                        Some(x) => x,
+                                    }
+                                }
+                                (Some(s), None) if s < 0 => {
+                                    match string.get(length - s.abs() as usize..length) {
+                                        None => "",
+                                        Some(x) => x,
+                                    }
+                                }
+                                (Some(s), Some(_e)) if s < 0 => "",
+                                (Some(s), Some(e)) if s >= 0 && e < 0 => {
+                                    match string.get(s as usize..length - (e.abs() as usize)) {
+                                        None => "",
+                                        Some(x) => x,
+                                    }
+                                }
+                                (Some(s), Some(e)) if s >= 0 => {
+                                    match string.get(s as usize..e as usize) {
+                                        None => "",
+                                        Some(x) => x,
+                                    }
+                                }
+                                (None, Some(e)) if e >= 0 => match string.get(0..e as usize) {
+                                    None => "",
+                                    Some(x) => x,
+                                },
+                                (None, Some(e)) if e < 0 => {
+                                    match string.get(0..length - (e.abs() as usize)) {
+                                        None => "",
+                                        Some(x) => x,
+                                    }
+                                }
+                                _ => "",
+                            };
+
+                            stack.push(Value::from(return_value));
+                        }
+                        ValueRepr::Seq(items) => {
+                            let length = items.len();
+
+                            // If there is a start index, but there is no end index, take from the start index to the end of the Vec.
+                            // If there both a start index and an end number, take from the supplied start index to the end index.
+                            // If there is no start index, but there is a start number, take from Vec length minus start index to the end of the Vec.
+                            let return_value = match (start, end) {
+                                (Some(s), None) => &items[s as usize..length],
+                                (Some(s), Some(e)) if (s < 0 && e < 0) => &[],
+                                (Some(s), Some(e)) if (s > 0 && e < 0) => {
+                                    &items[s as usize..(length as i128 - e) as usize]
+                                }
+                                (Some(s), Some(e)) if (e > length as i128) => {
+                                    &items[s as usize..length]
+                                }
+                                (Some(s), Some(e)) if (s < 0 && e > 0) => {
+                                    &items[(length as i128 - s.abs()) as usize..e as usize]
+                                }
+                                (Some(s), Some(e)) => &items[s as usize..e as usize],
+                                (None, Some(e)) if e > 0 => &items[0..e as usize],
+                                (None, Some(e)) => &items[0..length - (e.abs() as usize)],
+                                _ => &[],
+                            };
+
+                            stack.push(Value::from(return_value.to_vec()));
+                        }
+                        _ => bail!(Error::new(
+                            ErrorKind::ImpossibleOperation,
+                            "Slice can only be on a string or a sequence"
+                        )),
+                    }
+
+
                 }
             }
             pc += 1;

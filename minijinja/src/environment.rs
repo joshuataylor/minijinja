@@ -627,7 +627,6 @@ impl<'source> Environment<'source> {
                 let matched_expr = match expr {
                     Expr::Map(m) => {
                         if m.values.len() > 0 {
-                            println!("{:#?}", m);
                             let map_value = m.values.first().expect("Has item");
                             let map_expression = self._compile_expr(map_value).expect("Compiled");
                             Some(map_expression.eval(&()).expect("Expression"))

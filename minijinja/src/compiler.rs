@@ -588,8 +588,24 @@ impl<'source> Compiler<'source> {
             }
             ast::Expr::Slice(s) => {
                 self.set_location_from_span(s.span());
+
+                // We need to compile the start and end indexes in the reverse order, as we pop them from the stack.
+                let has_end = if let Some(ref end) = s.end {
+                    self.compile_expr(end)?;
+                    true
+                } else {
+                    false
+                };
+
+                let has_start = if let Some(ref start) = s.start {
+                    self.compile_expr(start)?;
+                    true
+                } else {
+                    false
+                };
+
                 self.compile_expr(&s.expr)?;
-                self.add(Instruction::Slice(s.start, s.end));
+                self.add(Instruction::Slice(has_start, has_end));
             }
         }
         Ok(())
