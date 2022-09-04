@@ -639,7 +639,7 @@ impl<'source> Environment<'source> {
                 macro_args.push(matched_expr);
             }
 
-            RcType::make_mut(&mut self.macros).insert(macro_name, (found_macro, macro_args));
+            self.macros.insert(macro_name, (found_macro, macro_args));
         }
     }
 
