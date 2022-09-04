@@ -517,7 +517,12 @@ impl<'source> Environment<'source> {
         self._render_str(source, Value::from_serializable(&ctx))
     }
 
-    pub fn render_str_name<S: Serialize>(&self, source: &str, name: &str, ctx: S) -> Result<String, Error> {
+    pub fn render_str_name<S: Serialize>(
+        &self,
+        source: &str,
+        name: &str,
+        ctx: S,
+    ) -> Result<String, Error> {
         let root = Value::from_serializable(&ctx);
         let compiled = CompiledTemplate::from_name_and_source(name, source)?;
         let mut output = String::new();
@@ -612,6 +617,8 @@ impl<'source> Environment<'source> {
     }
 
     pub fn add_macro(&mut self, prefix: &'source str, name: &'source str, contents: &'source str) {
+        println!("macro parsing: {:?}", name);
+
         let ast = parse(contents, name).unwrap();
         let mut compiler = Compiler::new(name, contents);
         compiler.compile_stmt(&ast).unwrap();

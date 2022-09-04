@@ -330,12 +330,14 @@ impl<'a> Parser<'a> {
                             ));
                         } else if matches!(self.stream.current()?, Some((Token::Colon, _))) {
                             self.stream.next()?;
-                            let second_value =
-                                if !matches!(self.stream.current()?, Some((Token::BracketClose, _))) {
-                                    Some(self.parse_expr()?)
-                                } else {
-                                    None
-                                };
+                            let second_value = if !matches!(
+                                self.stream.current()?,
+                                Some((Token::BracketClose, _))
+                            ) {
+                                Some(self.parse_expr()?)
+                            } else {
+                                None
+                            };
                             expect_token!(self, Token::BracketClose, "`]`")?;
                             expr = ast::Expr::Slice(Spanned::new(
                                 ast::Slice {
@@ -354,12 +356,14 @@ impl<'a> Parser<'a> {
                         if matches!(self.stream.current()?, Some((Token::Colon, _))) {
                             self.stream.next()?;
 
-                            let second_value =
-                                if !matches!(self.stream.current()?, Some((Token::BracketClose, _))) {
-                                    Some(self.parse_expr()?)
-                                } else {
-                                    None
-                                };
+                            let second_value = if !matches!(
+                                self.stream.current()?,
+                                Some((Token::BracketClose, _))
+                            ) {
+                                Some(self.parse_expr()?)
+                            } else {
+                                None
+                            };
 
                             expect_token!(self, Token::BracketClose, "`]`")?;
                             expr = ast::Expr::Slice(Spanned::new(

@@ -17,3 +17,8 @@
 
 {{ test() }}
 {{ test('foo') }}
+
+{% macro array_construct(inputs = [], data_type = second('integer')) -%}
+    {{inputs}}{{data_type}}123
+{% endmacro %}
+{{array_construct()}}

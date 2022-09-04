@@ -1221,7 +1221,7 @@ impl<'env> Vm<'env> {
                             ValueRepr::F64(x) => x as i128,
                             // ValueRepr::U128(x) => x as i128,
                             ValueRepr::I128(x) => *x,
-                            _ => unreachable!()
+                            _ => unreachable!(),
                         };
                         Some(s)
                     } else {
@@ -1236,12 +1236,10 @@ impl<'env> Vm<'env> {
                             // If there both a start index and an end number, take from the supplied start index to the end index.
                             // If there is no start index, but there is a start number, take from String length minus start index to the end of the Vec.
                             let return_value = match (start, end) {
-                                (Some(s), None) if s > 0 => {
-                                    match string.get(s as usize..length) {
-                                        None => "",
-                                        Some(x) => x,
-                                    }
-                                }
+                                (Some(s), None) if s > 0 => match string.get(s as usize..length) {
+                                    None => "",
+                                    Some(x) => x,
+                                },
                                 (Some(s), None) if s < 0 => {
                                     match string.get(length - s.abs() as usize..length) {
                                         None => "",
@@ -1307,8 +1305,6 @@ impl<'env> Vm<'env> {
                             "Slice can only be on a string or a sequence"
                         )),
                     }
-
-
                 }
             }
             pc += 1;
