@@ -2,8 +2,7 @@ use crate::compiler::Macro;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::{self, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
-#[cfg(feature = "sync")]
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::environment::Environment;
 use crate::error::{Error, ErrorKind};
@@ -11,15 +10,13 @@ use crate::instructions::{
     Instruction, Instructions, LOOP_FLAG_RECURSIVE, LOOP_FLAG_WITH_LOOP_VAR,
 };
 use crate::key::Key;
-use crate::utils::matches;
-use crate::value::{self, Object, RcType, Value, ValueIterator, ValueRepr};
+use crate::value::{self, ops, Object, Value, ValueIterator, ValueRepr};
 use crate::AutoEscape;
 
 pub struct LoopState {
     len: usize,
     idx: AtomicUsize,
     depth: usize,
-    #[cfg(feature = "sync")]
     last_changed_value: Mutex<Option<Vec<Value>>>,
 }
 
@@ -65,28 +62,25 @@ impl Object for LoopState {
         }
     }
 
-    fn call(&self, _state: &State, _args: Vec<Value>) -> Result<Value, Error> {
+    fn call(&self, _state: &State, _args: &[Value]) -> Result<Value, Error> {
         Err(Error::new(
             ErrorKind::ImpossibleOperation,
             "loop cannot be called if reassigned to different variable",
         ))
     }
 
-    fn call_method(&self, _state: &State, name: &str, args: Vec<Value>) -> Result<Value, Error> {
-        #[cfg(feature = "sync")]
-        {
-            if name == "changed" {
-                let mut last_changed_value = self.last_changed_value.lock().unwrap();
-                let changed = last_changed_value.as_ref() != Some(&args);
-                if changed {
-                    *last_changed_value = Some(args);
-                    return Ok(Value::from(true));
-                }
-                return Ok(Value::from(false));
+    fn call_method(&self, _state: &State, name: &str, args: &[Value]) -> Result<Value, Error> {
+        if name == "changed" {
+            let mut last_changed_value = self.last_changed_value.lock().unwrap();
+            let value = args.to_owned();
+            let changed = last_changed_value.as_ref() != Some(&value);
+            if changed {
+                *last_changed_value = Some(value);
+                Ok(Value::from(true))
+            } else {
+                Ok(Value::from(false))
             }
-        }
-
-        if name == "cycle" {
+        } else if name == "cycle" {
             let idx = self.idx.load(Ordering::Relaxed);
             match args.get(idx % args.len()) {
                 Some(arg) => Ok(arg.clone()),
@@ -123,7 +117,7 @@ pub struct Loop {
     // tells us if we need to end capturing.
     current_recursion_jump: Option<(usize, bool)>,
     iterator: ValueIterator,
-    controller: RcType<LoopState>,
+    controller: Arc<LoopState>,
 }
 
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
@@ -404,8 +398,8 @@ impl<'vm, 'env> State<'vm, 'env> {
     pub(crate) fn apply_filter(
         &self,
         name: &str,
-        value: Value,
-        args: Vec<Value>,
+        value: &Value,
+        args: &[Value],
     ) -> Result<Value, Error> {
         if let Some(filter) = self.env().get_filter(name) {
             filter.apply_to(self, value, args)
@@ -420,8 +414,8 @@ impl<'vm, 'env> State<'vm, 'env> {
     pub(crate) fn perform_test(
         &self,
         name: &str,
-        value: Value,
-        args: Vec<Value>,
+        value: &Value,
+        args: &[Value],
     ) -> Result<bool, Error> {
         if let Some(test) = self.env().get_test(name) {
             test.perform(self, value, args)
@@ -540,7 +534,7 @@ impl<'env> Vm<'env> {
             ($method:ident) => {{
                 let b = stack.pop();
                 let a = stack.pop();
-                stack.push(try_ctx!(value::$method(&a, &b)));
+                stack.push(try_ctx!(ops::$method(&a, &b)));
             }};
         }
 
@@ -693,15 +687,16 @@ impl<'env> Vm<'env> {
                     stack.push(Value::from(map));
                 }
                 Instruction::BuildList(count) => {
-                    let mut v = Vec::new();
+                    let mut v = Vec::with_capacity(*count);
                     for _ in 0..*count {
                         v.push(stack.pop());
                     }
                     v.reverse();
-                    stack.push(v.into());
+                    stack.push(Value(ValueRepr::Seq(Arc::new(v))));
                 }
                 Instruction::UnpackList(count) => {
-                    let mut v = try_ctx!(stack.pop().try_into_vec().map_err(|e| {
+                    let top = stack.pop();
+                    let v = try_ctx!(top.as_slice().map_err(|e| {
                         Error::new(
                             ErrorKind::ImpossibleOperation,
                             "cannot unpack: not a sequence",
@@ -718,15 +713,21 @@ impl<'env> Vm<'env> {
                             )
                         ));
                     }
-                    for _ in 0..*count {
-                        stack.push(v.pop().unwrap());
+                    for value in v.iter().rev() {
+                        stack.push(value.clone());
                     }
                 }
                 Instruction::ListAppend => {
                     let item = stack.pop();
-                    let mut list = try_ctx!(stack.pop().try_into_vec());
-                    list.push(item);
-                    stack.push(Value::from(list));
+                    if let ValueRepr::Seq(mut v) = stack.pop().0 {
+                        Arc::make_mut(&mut v).push(item);
+                        stack.push(Value(ValueRepr::Seq(v)))
+                    } else {
+                        bail!(Error::new(
+                            ErrorKind::ImpossibleOperation,
+                            "cannot append to non-list"
+                        ));
+                    }
                 }
                 Instruction::Add => func_binop!(add),
                 Instruction::Sub => func_binop!(sub),
@@ -748,16 +749,16 @@ impl<'env> Vm<'env> {
                 Instruction::StringConcat => {
                     let a = stack.pop();
                     let b = stack.pop();
-                    stack.push(value::string_concat(b, &a));
+                    stack.push(ops::string_concat(b, &a));
                 }
                 Instruction::In => {
                     let container = stack.pop();
                     let value = stack.pop();
-                    stack.push(try_ctx!(value::contains(&container, &value)));
+                    stack.push(try_ctx!(ops::contains(&container, &value)));
                 }
                 Instruction::Neg => {
                     let a = stack.pop();
-                    stack.push(try_ctx!(value::neg(&a)));
+                    stack.push(try_ctx!(ops::neg(&a)));
                 }
                 Instruction::PushWith => {
                     state.ctx.push_frame(Frame::new(FrameBase::None));
@@ -790,11 +791,10 @@ impl<'env> Vm<'env> {
                             with_loop_var: *flags & LOOP_FLAG_WITH_LOOP_VAR != 0,
                             recurse_jump_target: if recursive { Some(pc) } else { None },
                             current_recursion_jump: next_loop_recursion_jump.take(),
-                            controller: RcType::new(LoopState {
+                            controller: Arc::new(LoopState {
                                 idx: AtomicUsize::new(!0usize),
                                 len,
                                 depth,
-                                #[cfg(feature = "sync")]
                                 last_changed_value: Mutex::default(),
                             }),
                         }),
@@ -976,17 +976,22 @@ impl<'env> Vm<'env> {
                     end_capture!();
                 }
                 Instruction::ApplyFilter(name) => {
-                    let args = try_ctx!(stack.pop().try_into_vec());
+                    let top = stack.pop();
+                    let args = try_ctx!(top.as_slice());
                     let value = stack.pop();
-                    stack.push(try_ctx!(state.apply_filter(name, value, args)));
+                    stack.push(try_ctx!(state.apply_filter(name, &value, args)));
                 }
                 Instruction::PerformTest(name) => {
-                    let args = try_ctx!(stack.pop().try_into_vec());
+                    let top = stack.pop();
+                    let args = try_ctx!(top.as_slice());
                     let value = stack.pop();
-                    stack.push(Value::from(try_ctx!(state.perform_test(name, value, args))));
+                    stack.push(Value::from(
+                        try_ctx!(state.perform_test(name, &value, args)),
+                    ));
                 }
                 Instruction::CallFunction(function_name) => {
-                    let args = try_ctx!(stack.pop().try_into_vec());
+                    let top = stack.pop();
+                    let args = try_ctx!(top.as_slice());
                     // super is a special function reserved for super-ing into blocks.
                     if *function_name == "super" {
                         if !args.is_empty() {
@@ -1004,7 +1009,7 @@ impl<'env> Vm<'env> {
                                 format!("loop() takes one argument, got {}", args.len())
                             ));
                         }
-                        stack.push(args.into_iter().next().unwrap());
+                        stack.push(args[0].clone());
                         recurse_loop!(true);
                     } else if let Some(func) = state.ctx.load(self.env, function_name) {
                         stack.push(try_ctx!(func.call(state, args)));
@@ -1049,12 +1054,14 @@ impl<'env> Vm<'env> {
                     }
                 }
                 Instruction::CallMethod(name) => {
-                    let args = try_ctx!(stack.pop().try_into_vec());
+                    let top = stack.pop();
+                    let args = try_ctx!(top.as_slice());
                     let obj = stack.pop();
                     stack.push(try_ctx!(obj.call_method(state, name, args)));
                 }
                 Instruction::CallObject => {
-                    let args = try_ctx!(stack.pop().try_into_vec());
+                    let top = stack.pop();
+                    let args = try_ctx!(top.as_slice());
                     let obj = stack.pop();
                     stack.push(try_ctx!(obj.call(state, args)));
                 }

@@ -46,19 +46,21 @@
 //! MiniJinja will perform the necessary conversions automatically via the
 //! [`FunctionArgs`](crate::value::FunctionArgs) trait.
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::error::Error;
-use crate::value::{ArgType, FunctionArgs, RcType, Value};
+use crate::value::{ArgType, FunctionArgs, Value};
 use crate::vm::State;
 
-type TestFunc = dyn Fn(&State, Value, Vec<Value>) -> Result<bool, Error> + Sync + Send + 'static;
+type TestFunc = dyn Fn(&State, &Value, &[Value]) -> Result<bool, Error> + Sync + Send + 'static;
 
 #[derive(Clone)]
-pub(crate) struct BoxedTest(RcType<TestFunc>);
+pub(crate) struct BoxedTest(Arc<TestFunc>);
 
 /// A utility trait that represents filters.
-pub trait Test<V = Value, Args = Vec<Value>>: Send + Sync + 'static {
+pub trait Test<V, Args>: Send + Sync + 'static {
     /// Performs a test to value with the given arguments.
+    #[doc(hidden)]
     fn perform(&self, state: &State, value: V, args: Args) -> Result<bool, Error>;
 }
 
@@ -88,22 +90,21 @@ impl BoxedTest {
     pub fn new<F, V, Args>(f: F) -> BoxedTest
     where
         F: Test<V, Args>,
-        V: ArgType,
-        Args: FunctionArgs,
+        V: for<'a> ArgType<'a>,
+        Args: for<'a> FunctionArgs<'a>,
     {
-        BoxedTest(RcType::new(
-            move |state, value, args| -> Result<bool, Error> {
-                f.perform(
-                    state,
-                    ArgType::from_value(Some(value))?,
-                    FunctionArgs::from_values(args)?,
-                )
-            },
-        ))
+        BoxedTest(Arc::new(move |state, value, args| -> Result<bool, Error> {
+            let value = Some(value);
+            f.perform(
+                state,
+                ArgType::from_value(value)?,
+                FunctionArgs::from_values(args)?,
+            )
+        }))
     }
 
     /// Applies the filter to a value and argument.
-    pub fn perform(&self, state: &State, value: Value, args: Vec<Value>) -> Result<bool, Error> {
+    pub fn perform(&self, state: &State, value: &Value, args: &[Value]) -> Result<bool, Error> {
         (self.0)(state, value, args)
     }
 }
@@ -133,7 +134,6 @@ mod builtins {
 
     use std::convert::TryFrom;
 
-    use crate::utils::matches;
     use crate::value::ValueKind;
 
     /// Checks if a value is odd.
@@ -212,7 +212,7 @@ mod builtins {
         };
         let bx = BoxedTest::new(test);
         assert!(bx
-            .perform(&state, Value::from(23), vec![Value::from(23)])
+            .perform(&state, &Value::from(23), &[Value::from(23)][..])
             .unwrap());
     }
 }

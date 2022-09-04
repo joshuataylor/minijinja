@@ -1,6 +1,6 @@
 [package]
 name = "minijinja"
-version = "0.19.0"
+version = "0.19.1"
 edition = "2018"
 license = "Apache-2.0"
 authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
@@ -16,12 +16,11 @@ features = ["source", "json", "urlencode"]
 rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "doc-header.html"]
 
 [features]
-default = ["builtins", "sync", "debug", "key_interning", "deserialization"]
-sync = []
+default = ["builtins", "debug", "key_interning", "deserialization"]
 deserialization = []
-key_interning = ["sync"]
+key_interning = []
 preserve_order = ["indexmap"]
-debug = ["sync"]
+debug = []
 speedups = ["v_htmlescape"]
 source = ["self_cell", "memo-map"]
 builtins = []
@@ -29,6 +28,8 @@ json = ["serde_json"]
 urlencode = ["percent-encoding"]
 macros = ["indexmap"]
 
+# this feature no longer has any effect
+sync = []
 # enables the Debug trait for some internal types
 internal_debug = []
 # provides access to the unstable machinery

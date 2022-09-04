@@ -41,7 +41,6 @@ fn test_vm() {
         let content = iter.next().unwrap();
         env.add_template(filename, content).unwrap();
         let template = env.get_template(filename).unwrap();
-        dbg!(&template);
 
         let mut rendered = match template.render(&ctx) {
             Ok(rendered) => rendered,
@@ -119,7 +118,6 @@ fn test_auto_escaping() {
     insta::assert_snapshot!(rv, @r###"foo"bar'baz"###);
 }
 
-#[cfg(feature = "sync")]
 #[test]
 fn test_loop_changed() {
     let rv = minijinja::render!(

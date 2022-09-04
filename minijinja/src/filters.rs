@@ -45,20 +45,22 @@
 //! MiniJinja will perform the necessary conversions automatically via the
 //! [`FunctionArgs`](crate::value::FunctionArgs) and [`Into`] traits.
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::error::Error;
-use crate::value::{ArgType, FunctionArgs, RcType, Value};
+use crate::value::{ArgType, FunctionArgs, Value};
 use crate::vm::State;
 use crate::AutoEscape;
 
-type FilterFunc = dyn Fn(&State, Value, Vec<Value>) -> Result<Value, Error> + Sync + Send + 'static;
+type FilterFunc = dyn Fn(&State, &Value, &[Value]) -> Result<Value, Error> + Sync + Send + 'static;
 
 #[derive(Clone)]
-pub(crate) struct BoxedFilter(RcType<FilterFunc>);
+pub(crate) struct BoxedFilter(Arc<FilterFunc>);
 
 /// A utility trait that represents filters.
-pub trait Filter<V = Value, Rv = Value, Args = Vec<Value>>: Send + Sync + 'static {
+pub trait Filter<V, Rv, Args>: Send + Sync + 'static {
     /// Applies a filter to value with the given arguments.
+    #[doc(hidden)]
     fn apply_to(&self, state: &State, value: V, args: Args) -> Result<Rv, Error>;
 }
 
@@ -88,11 +90,11 @@ impl BoxedFilter {
     pub fn new<F, V, Rv, Args>(f: F) -> BoxedFilter
     where
         F: Filter<V, Rv, Args>,
-        V: ArgType,
+        V: for<'a> ArgType<'a>,
         Rv: Into<Value>,
-        Args: FunctionArgs,
+        Args: for<'a> FunctionArgs<'a>,
     {
-        BoxedFilter(RcType::new(
+        BoxedFilter(Arc::new(
             move |state, value, args| -> Result<Value, Error> {
                 f.apply_to(
                     state,
@@ -105,7 +107,7 @@ impl BoxedFilter {
     }
 
     /// Applies the filter to a value and argument.
-    pub fn apply_to(&self, state: &State, value: Value, args: Vec<Value>) -> Result<Value, Error> {
+    pub fn apply_to(&self, state: &State, value: &Value, args: &[Value]) -> Result<Value, Error> {
         (self.0)(state, value, args)
     }
 }
@@ -151,14 +153,19 @@ pub(crate) fn get_builtin_filters() -> BTreeMap<&'static str, BoxedFilter> {
 }
 
 /// Marks a value as safe.  This converts it into a string.
+///
+/// When a value is marked as safe, no further auto escaping will take place.
 pub fn safe(_state: &State, v: String) -> Result<Value, Error> {
     // TODO: this ideally understands which type of escaping is in use
     Ok(Value::from_safe_string(v))
 }
 
-/// HTML escapes a string.
+/// Escapes a string.  By default to HTML.
 ///
-/// By default this filter is also registered under the alias `e`.
+/// By default this filter is also registered under the alias `e`.  Note that
+/// this filter escapes with the format that is native to the format or HTML
+/// otherwise.  This means that if the auto escape setting is set to
+/// `Json` for instance then this filter will serialize to JSON instead.
 pub fn escape(state: &State, v: Value) -> Result<Value, Error> {
     if v.is_safe() {
         return Ok(v);
@@ -184,8 +191,8 @@ mod builtins {
     use super::*;
 
     use crate::error::ErrorKind;
-    use crate::utils::matches;
     use crate::value::{ValueKind, ValueRepr};
+    use std::borrow::Cow;
     use std::fmt::Write;
     use std::mem;
 
@@ -198,8 +205,8 @@ mod builtins {
     /// <h1>{{ chapter.title|upper }}</h1>
     /// ```
     #[cfg_attr(docsrs, doc(cfg(feature = "builtins")))]
-    pub fn upper(_state: &State, v: String) -> Result<String, Error> {
-        Ok(v.to_uppercase())
+    pub fn upper(_state: &State, v: Value) -> Result<String, Error> {
+        Ok(v.to_cowstr().to_uppercase())
     }
 
     /// Converts a value to lowercase.
@@ -208,8 +215,8 @@ mod builtins {
     /// <h1>{{ chapter.title|lower }}</h1>
     /// ```
     #[cfg_attr(docsrs, doc(cfg(feature = "builtins")))]
-    pub fn lower(_state: &State, v: String) -> Result<String, Error> {
-        Ok(v.to_lowercase())
+    pub fn lower(_state: &State, v: Value) -> Result<String, Error> {
+        Ok(v.to_cowstr().to_lowercase())
     }
 
     /// Converts a value to title case.
@@ -218,10 +225,10 @@ mod builtins {
     /// <h1>{{ chapter.title|title }}</h1>
     /// ```
     #[cfg_attr(docsrs, doc(cfg(feature = "builtins")))]
-    pub fn title(_state: &State, v: String) -> Result<String, Error> {
+    pub fn title(_state: &State, v: Value) -> Result<String, Error> {
         let mut rv = String::new();
         let mut capitalize = true;
-        for c in v.chars() {
+        for c in v.to_cowstr().chars() {
             if c.is_ascii_punctuation() || c.is_whitespace() {
                 rv.push(c);
                 capitalize = true;
@@ -244,8 +251,9 @@ mod builtins {
     ///   -> Goodbye World
     /// ```
     #[cfg_attr(docsrs, doc(cfg(feature = "builtins")))]
-    pub fn replace(_state: &State, v: String, from: String, to: String) -> Result<String, Error> {
-        Ok(v.replace(&from, &to))
+    pub fn replace(_state: &State, v: Value, from: Value, to: Value) -> Result<String, Error> {
+        Ok(v.to_cowstr()
+            .replace(&from.to_cowstr() as &str, &to.to_cowstr() as &str))
     }
 
     /// Returns the "length" of the value
@@ -335,9 +343,9 @@ mod builtins {
         if let Some(s) = v.as_str() {
             Ok(Value::from(s.chars().rev().collect::<String>()))
         } else if matches!(v.kind(), ValueKind::Seq) {
-            let mut v = v.try_into_vec()?;
-            v.reverse();
-            Ok(Value::from(v))
+            Ok(Value::from(
+                v.as_slice()?.iter().rev().cloned().collect::<Vec<_>>(),
+            ))
         } else {
             Err(Error::new(
                 ErrorKind::ImpossibleOperation,
@@ -348,39 +356,39 @@ mod builtins {
 
     /// Trims a value
     #[cfg_attr(docsrs, doc(cfg(feature = "builtins")))]
-    pub fn trim(_state: &State, s: String, chars: Option<String>) -> Result<String, Error> {
+    pub fn trim(_state: &State, s: Value, chars: Option<Value>) -> Result<String, Error> {
         match chars {
             Some(chars) => {
-                let chars = chars.chars().collect::<Vec<_>>();
-                Ok(s.trim_matches(&chars[..]).to_string())
+                let chars = chars.to_cowstr().chars().collect::<Vec<_>>();
+                Ok(s.to_cowstr().trim_matches(&chars[..]).to_string())
             }
-            None => Ok(s.trim().to_string()),
+            None => Ok(s.to_cowstr().trim().to_string()),
         }
     }
 
     /// Joins a sequence by a character
     #[cfg_attr(docsrs, doc(cfg(feature = "builtins")))]
-    pub fn join(_state: &State, val: Value, joiner: Option<String>) -> Result<String, Error> {
+    pub fn join(_state: &State, val: Value, joiner: Option<Value>) -> Result<String, Error> {
         if val.is_undefined() || val.is_none() {
             return Ok(String::new());
         }
 
-        let joiner = joiner.as_ref().map_or("", |x| x.as_str());
+        let joiner = joiner.as_ref().map_or(Cow::Borrowed(""), |x| x.to_cowstr());
 
         if let Some(s) = val.as_str() {
             let mut rv = String::new();
             for c in s.chars() {
                 if !rv.is_empty() {
-                    rv.push_str(joiner);
+                    rv.push_str(&joiner);
                 }
                 rv.push(c);
             }
             Ok(rv)
         } else if matches!(val.kind(), ValueKind::Seq) {
             let mut rv = String::new();
-            for item in val.try_into_vec()? {
+            for item in val.as_slice()? {
                 if !rv.is_empty() {
-                    rv.push_str(joiner);
+                    rv.push_str(&joiner);
                 }
                 if let Some(s) = item.as_str() {
                     rv.push_str(s);
@@ -563,6 +571,7 @@ mod builtins {
     ///
     /// If you pass it a second argument it’s used to fill missing values on the
     /// last iteration.
+    #[cfg_attr(docsrs, doc(cfg(feature = "builtins")))]
     pub fn slice(
         _: &State,
         value: Value,
@@ -616,6 +625,7 @@ mod builtins {
     ///   {% endfor %}
     /// </table>
     /// ```
+    #[cfg_attr(docsrs, doc(cfg(feature = "builtins")))]
     pub fn batch(
         _: &State,
         value: Value,
@@ -749,7 +759,7 @@ mod builtins {
         };
         let bx = BoxedFilter::new(test);
         assert_eq!(
-            bx.apply_to(&state, Value::from(23), vec![Value::from(42)])
+            bx.apply_to(&state, &Value::from(23), &[Value::from(42)][..])
                 .unwrap(),
             Value::from(65)
         );
@@ -775,15 +785,15 @@ mod builtins {
         };
         let bx = BoxedFilter::new(add);
         assert_eq!(
-            bx.apply_to(&state, Value::from(23), vec![Value::from(42)])
+            bx.apply_to(&state, &Value::from(23), &[Value::from(42)][..])
                 .unwrap(),
             Value::from(65)
         );
         assert_eq!(
             bx.apply_to(
                 &state,
-                Value::from(23),
-                vec![Value::from(42), Value::UNDEFINED]
+                &Value::from(23),
+                &[Value::from(42), Value::UNDEFINED][..]
             )
             .unwrap(),
             Value::from(65)
@@ -791,8 +801,8 @@ mod builtins {
         assert_eq!(
             bx.apply_to(
                 &state,
-                Value::from(23),
-                vec![Value::from(42), Value::from(1)]
+                &Value::from(23),
+                &[Value::from(42), Value::from(1)][..]
             )
             .unwrap(),
             Value::from(66)

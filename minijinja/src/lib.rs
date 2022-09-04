@@ -69,13 +69,6 @@
 //! assert_eq!(result.is_true(), true);
 //! ```
 //!
-//! # Debugging
-//!
-//! To better understand what's going on when a template syntax or rendering error
-//! happens you should turn on the built-in debug support.  Once enabled the errors
-//! created by the engine will include helpful error messages with information about
-//! where the error happened.  For more information see [`set_debug`](crate::Environment::set_debug).
-//!
 //! # Learn more
 //!
 //! - [`syntax`]: documentation of the template engine syntax.
@@ -86,12 +79,21 @@
 //! - [`Environment`]: the main API entry point.
 //! - [`Template`]: the template object API.
 //!
+//! # Debugging
+//!
+//! To better understand what's going on when a template syntax or rendering error
+//! happens you should turn on the built-in debug support.  Once enabled the errors
+//! created by the engine will include helpful error messages with information about
+//! where the error happened.  For more information see [`set_debug`](crate::Environment::set_debug).
+//!
 //! # Optional Features
 //!
 //! MiniJinja comes with a lot of optional features, some of which are turned on by
 //! default.  If you plan on using MiniJinja in a library, please consider turning
 //! off all default features and to opt-in explicitly into the ones you actually
 //! need.
+//!
+//! <details><summary><strong style="cursor: pointer">Configurable Features</strong></summary>
 //!
 //! There are some additional features that can be enabled:
 //!
@@ -112,11 +114,6 @@
 //!
 //! - `builtins`: if this feature is removed the default filters, tests and
 //!   functions are not implemented.
-//! - `sync`: this feature makes MiniJinja's type `Send` and `Sync`.  If this feature
-//!   is disabled sending types across threads is often not possible.  Thread bounds
-//!   of things like callbacks however are not changing which means code that uses
-//!   MiniJinja still needs to be threadsafe.  This also disables some features that
-//!   require synchronization such as the `loop.changed` feature.
 //! - `debug`: if this feature is removed some debug functionality of the engine is
 //!   removed as well.  This mainly affects the quality of error reporting.
 //! - `key_interning`: if this feature is removed the automatic string interning in
@@ -124,6 +121,8 @@
 //!   consumption of the value type by interning all string keys used in values.
 //! - `deserialization`: when removed this disables deserialization support for
 //!   the [`Value`](crate::value::Value) type.
+//!
+//! </details>
 #![allow(clippy::cognitive_complexity)]
 #![allow(clippy::get_first)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -144,13 +143,9 @@ mod vm;
 
 pub mod filters;
 pub mod functions;
-pub mod meta;
 pub mod syntax;
 pub mod tests;
 pub mod value;
-
-#[cfg(feature = "deserialization")]
-mod deserialize;
 
 #[cfg(feature = "source")]
 mod source;

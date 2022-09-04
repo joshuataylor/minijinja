@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -8,7 +9,7 @@ use crate::error::Error;
 use crate::instructions::Instructions;
 use crate::parser::{parse, parse_expr};
 use crate::utils::{AutoEscape, BTreeMapKeysDebug, HtmlEscape};
-use crate::value::{ArgType, FunctionArgs, RcType, Value};
+use crate::value::{ArgType, FunctionArgs, Value};
 use crate::vm::Vm;
 use crate::{filters, functions, tests};
 
@@ -124,9 +125,17 @@ impl<'env> Template<'env> {
     /// Renders the template into a string.
     ///
     /// The provided value is used as the initial context for the template.  It
-    /// can be any object that implements [`Serialize`](serde::Serialize).
-    /// Typically custom structs annotated with `#[derive(Serialize)]` would
-    /// be used for this purpose.
+    /// can be any object that implements [`Serialize`](serde::Serialize).  You
+    /// can eiher create your own struct and derive `Serialize` for it or the
+    /// [`context!`](crate::context) macro can be used to create an ad-hoc context.
+    ///
+    /// ```
+    /// # use minijinja::{Environment, context};
+    /// # let mut env = Environment::new();
+    /// # env.add_template("hello", "Hello {{ name }}!").unwrap();
+    /// let tmpl = env.get_template("hello").unwrap();
+    /// println!("{}", tmpl.render(context!(name => "John")).unwrap());
+    /// ```
     pub fn render<S: Serialize>(&self, ctx: S) -> Result<String, Error> {
         // reduce total amount of code faling under mono morphization into
         // this function, and share the rest in _eval.
@@ -164,13 +173,13 @@ impl<'env> Template<'env> {
     }
 }
 
-type TemplateMap<'source> = BTreeMap<&'source str, RcType<CompiledTemplate<'source>>>;
+type TemplateMap<'source> = BTreeMap<&'source str, CompiledTemplate<'source>>;
 
 #[derive(Clone)]
 enum Source<'source> {
-    Borrowed(RcType<TemplateMap<'source>>),
+    Borrowed(TemplateMap<'source>),
     #[cfg(feature = "source")]
-    Owned(RcType<crate::source::Source>),
+    Owned(crate::source::Source),
 }
 
 impl<'source> fmt::Debug for Source<'source> {
@@ -205,11 +214,11 @@ environment it's recommended to turn on the `source` feature and to use the
 #[derive(Clone)]
 pub struct Environment<'source> {
     templates: Source<'source>,
-    filters: RcType<BTreeMap<&'source str, filters::BoxedFilter>>,
-    tests: RcType<BTreeMap<&'source str, tests::BoxedTest>>,
-    pub(crate) globals: RcType<BTreeMap<&'source str, Value>>,
-    pub(crate) macros: RcType<BTreeMap<&'source str, (Macro<'source>, Vec<Option<Value>>)>>,
-    default_auto_escape: RcType<dyn Fn(&str) -> AutoEscape + Sync + Send>,
+    filters: BTreeMap<&'source str, filters::BoxedFilter>,
+    tests: BTreeMap<&'source str, tests::BoxedTest>,
+    pub(crate) globals: BTreeMap<&'source str, Value>,
+    pub(crate) macros: BTreeMap<&'source str, (Macro<'source>, Vec<Option<Value>>)>,
+    default_auto_escape: Arc<dyn Fn(&str) -> AutoEscape + Sync + Send>,
     #[cfg(feature = "debug")]
     debug: bool,
 }
@@ -315,11 +324,11 @@ impl<'source> Environment<'source> {
     pub fn new() -> Environment<'source> {
         Environment {
             templates: Source::Borrowed(Default::default()),
-            filters: RcType::new(filters::get_builtin_filters()),
-            tests: RcType::new(tests::get_builtin_tests()),
-            globals: RcType::new(functions::get_globals()),
-            macros: RcType::new(Default::default()),
-            default_auto_escape: RcType::new(default_auto_escape),
+            filters: filters::get_builtin_filters(),
+            tests: tests::get_builtin_tests(),
+            globals: functions::get_globals(),
+            macros: Default::default(),
+            default_auto_escape: Arc::new(default_auto_escape),
             #[cfg(feature = "debug")]
             debug: cfg!(debug_assertions),
         }
@@ -332,11 +341,11 @@ impl<'source> Environment<'source> {
     pub fn empty() -> Environment<'source> {
         Environment {
             templates: Source::Borrowed(Default::default()),
-            filters: RcType::default(),
-            tests: RcType::default(),
-            globals: RcType::default(),
-            macros: RcType::default(),
-            default_auto_escape: RcType::new(no_auto_escape),
+            filters: Default::default(),
+            tests: Default::default(),
+            globals: Default::default(),
+            macros: Default::default(),
+            default_auto_escape: Arc::new(no_auto_escape),
             #[cfg(feature = "debug")]
             debug: cfg!(debug_assertions),
         }
@@ -360,7 +369,7 @@ impl<'source> Environment<'source> {
         &mut self,
         f: F,
     ) {
-        self.default_auto_escape = RcType::new(f);
+        self.default_auto_escape = Arc::new(f);
     }
 
     /// Enable or disable the debug mode.
@@ -403,7 +412,7 @@ impl<'source> Environment<'source> {
     #[cfg(feature = "source")]
     #[cfg_attr(docsrs, doc(cfg(feature = "source")))]
     pub fn set_source(&mut self, source: crate::source::Source) {
-        self.templates = Source::Owned(RcType::new(source));
+        self.templates = Source::Owned(source);
     }
 
     /// Returns the currently set source.
@@ -430,11 +439,11 @@ impl<'source> Environment<'source> {
         match self.templates {
             Source::Borrowed(ref mut map) => {
                 let compiled_template = CompiledTemplate::from_name_and_source(name, source)?;
-                RcType::make_mut(map).insert(name, RcType::new(compiled_template));
+                map.insert(name, compiled_template);
                 Ok(())
             }
             #[cfg(feature = "source")]
-            Source::Owned(ref mut src) => RcType::make_mut(src).add_template(name, source),
+            Source::Owned(ref mut src) => src.add_template(name, source),
         }
     }
 
@@ -442,11 +451,11 @@ impl<'source> Environment<'source> {
     pub fn remove_template(&mut self, name: &str) {
         match self.templates {
             Source::Borrowed(ref mut map) => {
-                RcType::make_mut(map).remove(name);
+                map.remove(name);
             }
             #[cfg(feature = "source")]
             Source::Owned(ref mut source) => {
-                RcType::make_mut(source).remove_template(name);
+                source.remove_template(name);
             }
         }
     }
@@ -466,10 +475,7 @@ impl<'source> Environment<'source> {
     /// ```
     pub fn get_template(&self, name: &str) -> Result<Template<'_>, Error> {
         let compiled = match &self.templates {
-            Source::Borrowed(ref map) => map
-                .get(name)
-                .map(|v| &**v)
-                .ok_or_else(|| Error::new_not_found(name))?,
+            Source::Borrowed(ref map) => map.get(name).ok_or_else(|| Error::new_not_found(name))?,
             #[cfg(feature = "source")]
             Source::Owned(source) => source.get_compiled_template(name)?,
         };
@@ -575,17 +581,17 @@ impl<'source> Environment<'source> {
     /// For details about filters have a look at [`filters`].
     pub fn add_filter<F, V, Rv, Args>(&mut self, name: &'source str, f: F)
     where
-        V: ArgType,
+        V: for<'a> ArgType<'a>,
         Rv: Into<Value>,
         F: filters::Filter<V, Rv, Args>,
-        Args: FunctionArgs,
+        Args: for<'a> FunctionArgs<'a>,
     {
-        RcType::make_mut(&mut self.filters).insert(name, filters::BoxedFilter::new(f));
+        self.filters.insert(name, filters::BoxedFilter::new(f));
     }
 
     /// Removes a filter by name.
     pub fn remove_filter(&mut self, name: &str) {
-        RcType::make_mut(&mut self.filters).remove(name);
+        self.filters.remove(name);
     }
 
     /// Adds a new test function.
@@ -593,16 +599,16 @@ impl<'source> Environment<'source> {
     /// For details about tests have a look at [`tests`].
     pub fn add_test<F, V, Args>(&mut self, name: &'source str, f: F)
     where
-        V: ArgType,
+        V: for<'a> ArgType<'a>,
         F: tests::Test<V, Args>,
-        Args: FunctionArgs,
+        Args: for<'a> FunctionArgs<'a>,
     {
-        RcType::make_mut(&mut self.tests).insert(name, tests::BoxedTest::new(f));
+        self.tests.insert(name, tests::BoxedTest::new(f));
     }
 
     /// Removes a test by name.
     pub fn remove_test(&mut self, name: &str) {
-        RcType::make_mut(&mut self.tests).remove(name);
+        self.tests.remove(name);
     }
 
     pub fn add_macro(&mut self, name: &'source str, contents: &'source str) {
@@ -645,19 +651,19 @@ impl<'source> Environment<'source> {
     where
         Rv: Into<Value>,
         F: functions::Function<Rv, Args>,
-        Args: FunctionArgs,
+        Args: for<'a> FunctionArgs<'a>,
     {
         self.add_global(name, functions::BoxedFunction::new(f).to_value());
     }
 
     /// Adds a global variable.
     pub fn add_global(&mut self, name: &'source str, value: Value) {
-        RcType::make_mut(&mut self.globals).insert(name, value);
+        self.globals.insert(name, value);
     }
 
     /// Removes a global function or variable by name.
     pub fn remove_global(&mut self, name: &str) {
-        RcType::make_mut(&mut self.globals).remove(name);
+        self.globals.remove(name);
     }
 
     /// Looks up a function.

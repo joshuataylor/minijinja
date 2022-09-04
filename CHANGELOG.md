@@ -2,6 +2,22 @@
 
 All notable changes to MiniJinja are documented here.
 
+# Unreleased
+
+- Remove internal refcounts from environment.
+- Changed `Object` and `FunctionArgs` interface to take
+  arguments by reference. (#101)
+- `sync` mode is now always enabled. (#104)
+- Removed meta API. (#105)
+
+## Breaking Changes
+
+- The `meta` API is gone without replacement.
+- `Object::call_method` and `Object::call` now take the arguments
+  as `&[Value]` instead of `Vec<Value>`.
+- `Object::call_method`, `Object::call` and `FunctionArgs::from_values`
+  now take the arguments as `&[Value]` instead of `Vec<Value>`.
+
 # 0.19.1
 
 - Fixed binary subtraction operator requiring a space. (#94)
