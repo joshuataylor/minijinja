@@ -35,13 +35,21 @@ pub struct Error {
 
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Error")
-            .field("kind", &self.kind)
-            .field("detail", &self.detail)
-            .field("name", &self.name)
-            .field("lineno", &self.lineno)
-            .field("source", &self.source)
-            .finish()?;
+        let mut err = f.debug_struct("Error");
+        err.field("kind", &self.kind);
+        if let Some(ref detail) = self.detail {
+            err.field("detail", detail);
+        }
+        if let Some(ref name) = self.name {
+            err.field("name", name);
+        }
+        if self.lineno > 0 {
+            err.field("line", &self.lineno);
+        }
+        if let Some(ref source) = self.source {
+            err.field("source", source);
+        }
+        err.finish()?;
 
         // so this is a bit questionablem, but because of how commonly errors are just
         // unwrapped i think it's sensible to spit out the debug info following the
@@ -58,14 +66,6 @@ impl fmt::Debug for Error {
         Ok(())
     }
 }
-
-impl PartialEq for Error {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind() == other.kind()
-    }
-}
-
-impl Eq for Error {}
 
 /// An enum describing the error kind.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -188,7 +188,7 @@ impl Error {
     /// ([`Environment::set_debug`](crate::Environment::set_debug)).
     #[cfg(feature = "debug")]
     #[cfg_attr(docsrs, doc(cfg(feature = "debug")))]
-    pub fn debug_info(&self) -> Option<&DebugInfo> {
+    pub(crate) fn debug_info(&self) -> Option<&DebugInfo> {
         self.debug_info.as_ref()
     }
 }
@@ -230,7 +230,7 @@ mod debug_info {
     /// This is a snapshot of the debug information.
     #[cfg_attr(docsrs, doc(cfg(feature = "debug")))]
     #[derive(Default)]
-    pub struct DebugInfo {
+    pub(crate) struct DebugInfo {
         pub(crate) template_source: Option<String>,
         pub(crate) context: Option<Value>,
         pub(crate) referenced_names: Option<Vec<String>>,
@@ -310,4 +310,4 @@ mod debug_info {
 }
 
 #[cfg(feature = "debug")]
-pub use self::debug_info::*;
+pub(crate) use self::debug_info::*;

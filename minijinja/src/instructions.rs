@@ -13,8 +13,8 @@ pub const LOOP_FLAG_WITH_LOOP_VAR: u8 = 1;
 pub const LOOP_FLAG_RECURSIVE: u8 = 2;
 
 /// Represents an instruction for the VM.
-#[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone)]
 pub enum Instruction<'source> {
     /// Emits raw source
     EmitRaw(&'source str),
@@ -36,9 +36,6 @@ pub enum Instruction<'source> {
 
     /// Allows slicing strings and lists.
     Slice(bool, bool),
-
-    /// Stores a macro
-    StoreMacro(&'source str),
 
     /// Ends capturing of output.
     EndCaptureMacro,
@@ -192,10 +189,6 @@ pub enum Instruction<'source> {
 
     /// A fast loop recurse instruction without intermediate capturing.
     FastRecurse,
-
-    /// A nop
-    #[allow(unused)]
-    Nop,
 }
 
 #[derive(Copy, Clone)]
@@ -205,7 +198,7 @@ struct Loc {
 }
 
 /// Wrapper around instructions to help with location management.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Instructions<'source> {
     pub(crate) instructions: Vec<Instruction<'source>>,
     locations: Vec<Loc>,

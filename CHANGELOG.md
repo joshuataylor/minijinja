@@ -2,13 +2,17 @@
 
 All notable changes to MiniJinja are documented here.
 
-# Unreleased
+# 0.20.0
 
 - Remove internal refcounts from environment.
 - Changed `Object` and `FunctionArgs` interface to take
   arguments by reference. (#101)
 - `sync` mode is now always enabled. (#104)
 - Removed meta API. (#105)
+- Error no longer implements `PartialEq`.
+- Simplified the function interface.  Filters, tests and global
+  functions can now directly return values instead of results. (#107)
+- MiniJinja no longer silently iterates over non iterable values.
 
 ## Breaking Changes
 
@@ -17,6 +21,11 @@ All notable changes to MiniJinja are documented here.
   as `&[Value]` instead of `Vec<Value>`.
 - `Object::call_method`, `Object::call` and `FunctionArgs::from_values`
   now take the arguments as `&[Value]` instead of `Vec<Value>`.
+- The error object used to implement `PartialEq` but this was implemented
+  by comparing the error kind instead.  Explicitly use the `.kind()`
+  method of the error if you want the same behavior.
+- `DebugInfo` is no longer exposed.  This might come back if a better
+  API can be found.
 
 # 0.19.1
 

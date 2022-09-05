@@ -1,9 +1,10 @@
-use crate::compiler::Macro;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::{self, Write};
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::compiler::Macro;
 use crate::environment::Environment;
 use crate::error::{Error, ErrorKind};
 use crate::instructions::{
@@ -341,6 +342,19 @@ impl<'env, 'vm> Context<'env, 'vm> {
     }
 }
 
+fn process_err(mut err: Error, pc: usize, _state: &State, instructions: &Instructions) -> Error {
+    if let Some(lineno) = instructions.get_line(pc) {
+        err.set_location(instructions.name(), lineno);
+    }
+    #[cfg(feature = "debug")]
+    {
+        if _state.env.debug() && err.debug_info.is_none() {
+            err.debug_info = Some(_state.make_debug_info(pc, instructions));
+        }
+    }
+    err
+}
+
 /// Provides access to the current execution state of the engine.
 ///
 /// A read only reference is passed to filter functions and similar objects to
@@ -442,6 +456,47 @@ impl<'vm, 'env> State<'vm, 'env> {
     }
 }
 
+struct Output<'a> {
+    output: &'a mut String,
+    capture_stack: Vec<String>,
+}
+
+impl<'a> Output<'a> {
+    pub fn new(output: &'a mut String) -> Output<'a> {
+        Output {
+            output,
+            capture_stack: Vec::new(),
+        }
+    }
+
+    pub fn begin_capture(&mut self) {
+        self.capture_stack.push(String::new());
+    }
+
+    pub fn end_capture(&mut self, auto_escape: AutoEscape) -> Value {
+        let captured = self.capture_stack.pop().unwrap();
+        if !matches!(auto_escape, AutoEscape::None) {
+            Value::from_safe_string(captured)
+        } else {
+            Value::from(captured)
+        }
+    }
+}
+
+impl<'a> Deref for Output<'a> {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        self.capture_stack.last().unwrap_or(self.output)
+    }
+}
+
+impl<'a> DerefMut for Output<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.capture_stack.last_mut().unwrap_or(self.output)
+    }
+}
+
 /// Helps to evaluate something.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
 pub struct Vm<'env> {
@@ -464,6 +519,7 @@ impl<'env> Vm<'env> {
         initial_auto_escape: AutoEscape,
         output: &mut String,
     ) -> Result<Option<Value>, Error> {
+        let mut output = Output::new(output);
         let mut ctx = Context::default();
         ctx.push_frame(Frame::new(FrameBase::Value(root)));
         let mut referenced_blocks = BTreeMap::new();
@@ -482,8 +538,8 @@ impl<'env> Vm<'env> {
                 &mut state,
                 instructions,
                 referenced_blocks,
-                macros.clone(),
-                output,
+                macros,
+                &mut output,
             )
         })
     }
@@ -494,30 +550,19 @@ impl<'env> Vm<'env> {
         state: &mut State<'_, 'env>,
         mut instructions: &Instructions<'env>,
         mut blocks: BTreeMap<&'env str, Vec<&'_ Instructions<'env>>>,
-        macros: BTreeMap<&'env str, Macro<'env>>,
-        output: &mut String,
+        macros: &BTreeMap<&'env str, Macro<'env>>,
+        output: &mut Output,
     ) -> Result<Option<Value>, Error> {
         let initial_auto_escape = state.auto_escape;
         let mut stack = Stack { values: Vec::new() };
         let mut auto_escape_stack = vec![];
-        let mut capture_stack = vec![];
         let mut block_stack = vec![];
         let mut next_loop_recursion_jump = None;
         let mut pc = 0;
 
         macro_rules! bail {
             ($err:expr) => {{
-                let mut err = $err;
-                if let Some(lineno) = instructions.get_line(pc) {
-                    err.set_location(instructions.name(), lineno);
-                }
-                #[cfg(feature = "debug")]
-                {
-                    if self.env.debug() && err.debug_info.is_none() {
-                        err.debug_info = Some(state.make_debug_info(pc, &instructions));
-                    }
-                }
-                return Err(err);
+                return Err(process_err($err, pc, state, instructions));
             }};
         }
 
@@ -546,51 +591,17 @@ impl<'env> Vm<'env> {
             }};
         }
 
-        macro_rules! out {
-            () => {
-                capture_stack.last_mut().unwrap_or(output)
-            };
-        }
-
-        macro_rules! begin_capture {
-            () => {
-                capture_stack.push(String::new());
-            };
-        }
-
-        macro_rules! end_capture {
-            () => {{
-                let captured = capture_stack.pop().unwrap();
-                // TODO: this should take the right auto escapine flag into account
-                stack.push(if !matches!(state.auto_escape, AutoEscape::None) {
-                    Value::from_safe_string(captured)
-                } else {
-                    Value::from(captured)
-                });
-            }};
-        }
-
         macro_rules! sub_eval {
             ($instructions:expr) => {{
-                sub_eval!(
+                self.sub_eval(
+                    state,
                     $instructions,
                     blocks.clone(),
-                    macros.clone(),
+                    &macros.clone(),
                     state.current_block,
-                    state.auto_escape
-                );
-            }};
-            ($instructions:expr, $blocks:expr, $macros:expr, $current_block:expr, $auto_escape:expr) => {{
-                let mut sub_context = Context::default();
-                sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
-                let mut sub_state = State {
-                    env: self.env,
-                    ctx: sub_context,
-                    auto_escape: $auto_escape,
-                    current_block: $current_block,
-                    name: $instructions.name(),
-                };
-                self.eval_state(&mut sub_state, $instructions, $blocks, $macros, out!())?;
+                    state.auto_escape,
+                    output,
+                )?
             }};
         }
 
@@ -610,11 +621,11 @@ impl<'env> Vm<'env> {
                     layers.remove(0);
                     let instructions = layers.first().unwrap();
                     if $capture {
-                        begin_capture!();
+                        output.begin_capture();
                     }
                     sub_eval!(instructions);
                     if $capture {
-                        end_capture!();
+                        stack.push(output.end_capture(state.auto_escape));
                     }
                 } else {
                     panic!("attempted to super unreferenced block");
@@ -632,7 +643,7 @@ impl<'env> Vm<'env> {
                         // to.
                         next_loop_recursion_jump = Some((pc + 1, $capture));
                         if $capture {
-                            begin_capture!();
+                            output.begin_capture();
                         }
                         pc = recurse_jump_target;
                         continue;
@@ -654,10 +665,10 @@ impl<'env> Vm<'env> {
         while let Some(instr) = instructions.get(pc) {
             match instr {
                 Instruction::EmitRaw(val) => {
-                    write!(out!(), "{}", val).unwrap();
+                    write!(output, "{}", val).unwrap();
                 }
                 Instruction::Emit => {
-                    try_ctx!(self.env.finalize(&stack.pop(), state.auto_escape, out!()));
+                    try_ctx!(self.env.finalize(&stack.pop(), state.auto_escape, output));
                 }
                 Instruction::StoreLocal(name) => {
                     state.ctx.store(name, stack.pop());
@@ -769,7 +780,7 @@ impl<'env> Vm<'env> {
                         {
                             pc = target;
                             if end_capture {
-                                end_capture!();
+                                stack.push(output.end_capture(state.auto_escape));
                             }
                             continue;
                         }
@@ -777,7 +788,7 @@ impl<'env> Vm<'env> {
                 }
                 Instruction::PushLoop(flags) => {
                     let iterable = stack.pop();
-                    let iterator = iterable.iter();
+                    let iterator = try_ctx!(iterable.try_iter());
                     let len = iterator.len();
                     let depth = state
                         .ctx
@@ -883,65 +894,7 @@ impl<'env> Vm<'env> {
                 }
                 Instruction::Include(ignore_missing) => {
                     let name = stack.pop();
-                    let choices = if let ValueRepr::Seq(ref choices) = name.0 {
-                        &choices[..]
-                    } else {
-                        std::slice::from_ref(&name)
-                    };
-                    let mut templates_tried = vec![];
-                    for name in choices {
-                        let name = try_ctx!(name.as_str().ok_or_else(|| {
-                            Error::new(
-                                ErrorKind::ImpossibleOperation,
-                                "template name was not a string",
-                            )
-                        }));
-                        let tmpl = match self.env.get_template(name) {
-                            Ok(tmpl) => tmpl,
-                            Err(err) => {
-                                if err.kind() == ErrorKind::TemplateNotFound {
-                                    templates_tried.push(name);
-                                } else {
-                                    bail!(err);
-                                }
-                                continue;
-                            }
-                        };
-                        let instructions = tmpl.instructions();
-                        let mut referenced_blocks = BTreeMap::new();
-                        for (&name, instr) in tmpl.blocks().iter() {
-                            referenced_blocks.insert(name, vec![instr]);
-                        }
-                        sub_eval!(
-                            instructions,
-                            referenced_blocks,
-                            BTreeMap::new(),
-                            None,
-                            tmpl.initial_auto_escape()
-                        );
-                        templates_tried.clear();
-                        break;
-                    }
-
-                    if !templates_tried.is_empty() && !*ignore_missing {
-                        if templates_tried.len() == 1 {
-                            bail!(Error::new(
-                                ErrorKind::TemplateNotFound,
-                                format!(
-                                    "tried to include non-existing template {:?}",
-                                    templates_tried[0]
-                                )
-                            ));
-                        } else {
-                            bail!(Error::new(
-                                ErrorKind::TemplateNotFound,
-                                format!(
-                                    "tried to include one of multiple templates, none of which existed {:?}",
-                                    templates_tried
-                                )
-                            ));
-                        }
-                    }
+                    try_ctx!(self.perform_include(name, state, output, ignore_missing));
                 }
                 Instruction::PushAutoEscape => {
                     let value = stack.pop();
@@ -970,10 +923,10 @@ impl<'env> Vm<'env> {
                     state.auto_escape = auto_escape_stack.pop().unwrap();
                 }
                 Instruction::BeginCapture => {
-                    begin_capture!();
+                    output.begin_capture();
                 }
                 Instruction::EndCapture => {
-                    end_capture!();
+                    stack.push(output.end_capture(state.auto_escape));
                 }
                 Instruction::ApplyFilter(name) => {
                     let top = stack.pop();
@@ -993,6 +946,7 @@ impl<'env> Vm<'env> {
                     let top = stack.pop();
                     let args = try_ctx!(top.as_slice());
                     // super is a special function reserved for super-ing into blocks.
+                    println!("function_name: {}", function_name);
                     if *function_name == "super" {
                         if !args.is_empty() {
                             bail!(Error::new(
@@ -1001,7 +955,7 @@ impl<'env> Vm<'env> {
                             ));
                         }
                         super_block!(true);
-                    // loop is a special name which when called recurses the current loop.
+                        // loop is a special name which when called recurses the current loop.
                     } else if *function_name == "loop" {
                         if args.len() != 1 {
                             bail!(Error::new(
@@ -1035,17 +989,18 @@ impl<'env> Vm<'env> {
                                 Some(a) => sub_state.ctx.store(&arg_name, a.clone()),
                             };
                         }
+                        let mut output_string = String::new();
+                        let mut output = Output::new(&mut output_string);
 
-                        let mut output = String::new();
                         self.eval_state(
                             &mut sub_state,
                             &found_macro.instructions,
                             blocks.clone(),
-                            macros.clone(),
+                            &macros,
                             &mut output,
                         )?;
-
-                        stack.push(Value::from(output));
+                        //
+                        stack.push(Value::from(output_string));
                     } else {
                         bail!(Error::new(
                             ErrorKind::ImpossibleOperation,
@@ -1076,123 +1031,6 @@ impl<'env> Vm<'env> {
                 }
                 Instruction::FastRecurse => {
                     recurse_loop!(false);
-                }
-                Instruction::Nop => {}
-                // Instruction::Slice(start, end) => {
-                //     let val = stack.pop();
-                //     match val.0 {
-                //         ValueRepr::String(string) | ValueRepr::SafeString(string) => {
-                //             let length = string.len();
-                //
-                //             // If there is a start index, but there is no end index, take from the start index to the end of the String.
-                //             // If there both a start index and an end number, take from the supplied start index to the end index.
-                //             // If there is no start index, but there is a start number, take from String length minus start index to the end of the Vec.
-                //             let return_value = match (start, end) {
-                //                 (Some(s), None) if *s > 0 => {
-                //                     match string.get(*s as usize..length) {
-                //                         None => "",
-                //                         Some(x) => x,
-                //                     }
-                //                 }
-                //                 (Some(s), None) if *s < 0 => {
-                //                     match string.get(length - s.abs() as usize..length) {
-                //                         None => "",
-                //                         Some(x) => x,
-                //                     }
-                //                 }
-                //                 (Some(s), Some(_e)) if *s < 0 => "",
-                //                 (Some(s), Some(e)) if *s >= 0 => {
-                //                     match string.get(*s as usize..*e as usize) {
-                //                         None => "",
-                //                         Some(x) => x,
-                //                     }
-                //                 }
-                //                 (None, Some(e)) if *e >= 0 => match string.get(0..*e as usize) {
-                //                     None => "",
-                //                     Some(x) => x,
-                //                 },
-                //                 (None, Some(e)) if *e < 0 => {
-                //                     match string.get(0..length - (e.abs() as usize)) {
-                //                         None => "",
-                //                         Some(x) => x,
-                //                     }
-                //                 }
-                //                 _ => "",
-                //             };
-                //
-                //             stack.push(Value::from(return_value));
-                //         }
-                //         ValueRepr::Seq(items) => {
-                //             let length = items.len();
-                //
-                //             // If there is a start index, but there is no end index, take from the start index to the end of the Vec.
-                //             // If there both a start index and an end number, take from the supplied start index to the end index.
-                //             // If there is no start index, but there is a start number, take from Vec length minus start index to the end of the Vec.
-                //             let return_value = match (start, end) {
-                //                 (Some(s), None) => &items[*s as usize..length],
-                //                 (Some(s), Some(e)) if (*s < 0 && *e < 0) => &[],
-                //                 (Some(s), Some(e)) if (*s > 0 && *e < 0) => {
-                //                     &items[*s as usize..(length as i64 - e) as usize]
-                //                 }
-                //                 (Some(s), Some(e)) if (*e > length as i64) => {
-                //                     &items[*s as usize..length]
-                //                 }
-                //                 (Some(s), Some(e)) if (*s < 0 && *e > 0) => {
-                //                     &items[(length as i64 - s.abs()) as usize..*e as usize]
-                //                 }
-                //                 (Some(s), Some(e)) => &items[*s as usize..*e as usize],
-                //                 (None, Some(e)) if *e > 0 => &items[0..*e as usize],
-                //                 (None, Some(e)) => &items[0..length - (e.abs() as usize)],
-                //                 _ => &[],
-                //             };
-                //
-                //             stack.push(Value::from(return_value.to_vec()));
-                //         }
-                //         _ => bail!(Error::new(
-                //             ErrorKind::ImpossibleOperation,
-                //             "Slice can only be on a string or a sequence"
-                //         )),
-                //     }
-                // }
-                Instruction::StoreMacro(_) => {}
-                Instruction::EndCaptureMacro => {
-                    // if let Some(found_macro) = macros.get(name) {
-                    let captured = capture_stack.pop().unwrap();
-                    let caller = if !matches!(state.auto_escape, AutoEscape::None) {
-                        Value::from_safe_string(captured)
-                    } else {
-                        Value::from(captured)
-                    };
-                    state.ctx.store("_caller", caller);
-                    // }
-                }
-                Instruction::CallMacro(name, _param_count) => {
-                    let found_macro = &macros.get(name).expect("No macro found");
-                    let mut sub_context = Context::default();
-                    sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
-
-                    let mut sub_state = State {
-                        env: self.env,
-                        ctx: sub_context,
-                        auto_escape: state.auto_escape,
-                        current_block: Some(name),
-                        name,
-                    };
-
-                    for (arg_name, _) in &found_macro.args {
-                        sub_state.ctx.store(&arg_name, stack.pop());
-                    }
-
-                    let mut output = String::new();
-                    self.eval_state(
-                        &mut sub_state,
-                        &found_macro.instructions,
-                        blocks.clone(),
-                        macros.clone(),
-                        &mut output,
-                    )?;
-
-                    stack.push(Value::from(output));
                 }
                 Instruction::Slice(has_start, has_finish) => {
                     let value = stack.pop();
@@ -1306,32 +1144,153 @@ impl<'env> Vm<'env> {
                         )),
                     }
                 }
+                Instruction::EndCaptureMacro => {
+                    let captured = output.end_capture(state.auto_escape);
+                    stack.push(captured.clone());
+                    state.ctx.store("_caller", captured.clone());
+                }
+                Instruction::CallMacro(name, _param_count) => {
+                    // First check if it exists in the environment.
+                    let mut sub_context = Context::default();
+                    sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+                    let mut sub_state = State {
+                        env: self.env,
+                        ctx: sub_context,
+                        auto_escape: state.auto_escape,
+                        current_block: Some(name),
+                        name,
+                    };
+
+                    let found_macro = match state.env.macros.get(name) {
+                        None => {
+                            let found_macro = macros.get(name);
+                            if !found_macro.is_some() {
+                                bail!(Error::new(
+                                    ErrorKind::SyntaxError,
+                                    format!("Macro {} is not defined", name)
+                                ));
+                            }
+                            found_macro.unwrap()
+                        }
+                        Some((found_macro, _macro_args)) => found_macro,
+                    };
+
+                    for (arg_name, _) in &found_macro.args {
+                        sub_state.ctx.store(&arg_name, stack.pop());
+                    }
+
+                    let mut output_string = String::new();
+                    let mut output = Output::new(&mut output_string);
+
+                    self.eval_state(
+                        &mut sub_state,
+                        &found_macro.instructions,
+                        blocks.clone(),
+                        &macros,
+                        &mut output,
+                    )?;
+                    //
+                    stack.push(Value::from(output_string));
+                }
             }
             pc += 1;
         }
 
         Ok(stack.try_pop())
     }
-}
 
-/// Simple version of eval without environment or vm.
-#[cfg(feature = "unstable_machinery")]
-pub fn simple_eval<S: serde::Serialize>(
-    instructions: &Instructions<'_>,
-    ctx: S,
-    output: &mut String,
-) -> Result<Option<Value>, Error> {
-    let env = Environment::new();
-    let empty_blocks = BTreeMap::new();
-    let empty_macros = BTreeMap::new();
-    let vm = Vm::new(&env);
-    let root = Value::from_serializable(&ctx);
-    vm.eval(
-        instructions,
-        root,
-        &empty_blocks,
-        &empty_macros,
-        AutoEscape::None,
-        output,
-    )
+    fn perform_include(
+        &self,
+        name: Value,
+        state: &mut State<'_, 'env>,
+        output: &mut Output,
+        ignore_missing: &bool,
+    ) -> Result<(), Error> {
+        let choices = if let ValueRepr::Seq(ref choices) = name.0 {
+            &choices[..]
+        } else {
+            std::slice::from_ref(&name)
+        };
+        let mut templates_tried = vec![];
+        for name in choices {
+            let name = name.as_str().ok_or_else(|| {
+                Error::new(
+                    ErrorKind::ImpossibleOperation,
+                    "template name was not a string",
+                )
+            })?;
+            let tmpl = match self.env.get_template(name) {
+                Ok(tmpl) => tmpl,
+                Err(err) => {
+                    if err.kind() == ErrorKind::TemplateNotFound {
+                        templates_tried.push(name);
+                    } else {
+                        return Err(err);
+                    }
+                    continue;
+                }
+            };
+            let instructions = tmpl.instructions();
+            let mut referenced_blocks = BTreeMap::new();
+            for (&name, instr) in tmpl.blocks().iter() {
+                referenced_blocks.insert(name, vec![instr]);
+            }
+            let macros = BTreeMap::new();
+            self.sub_eval(
+                state,
+                instructions,
+                referenced_blocks,
+                &macros,
+                None,
+                tmpl.initial_auto_escape(),
+                output,
+            )?;
+            templates_tried.clear();
+            break;
+        }
+        if !templates_tried.is_empty() && !*ignore_missing {
+            Err(if templates_tried.len() == 1 {
+                Error::new(
+                    ErrorKind::TemplateNotFound,
+                    format!(
+                        "tried to include non-existing template {:?}",
+                        templates_tried[0]
+                    ),
+                )
+            } else {
+                Error::new(
+                    ErrorKind::TemplateNotFound,
+                    format!(
+                        "tried to include one of multiple templates, none of which existed {:?}",
+                        templates_tried
+                    ),
+                )
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn sub_eval(
+        &self,
+        state: &mut State<'_, 'env>,
+        instructions: &Instructions<'env>,
+        blocks: BTreeMap<&'env str, Vec<&'_ Instructions<'env>>>,
+        macros: &BTreeMap<&'env str, Macro<'env>>,
+        current_block: Option<&str>,
+        auto_escape: AutoEscape,
+        output: &mut Output,
+    ) -> Result<(), Error> {
+        let mut sub_context = Context::default();
+        sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+        let mut sub_state = State {
+            env: self.env,
+            ctx: sub_context,
+            auto_escape,
+            current_block,
+            name: instructions.name(),
+        };
+        self.eval_state(&mut sub_state, instructions, blocks, macros, output)?;
+        Ok(())
+    }
 }

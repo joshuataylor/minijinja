@@ -40,7 +40,7 @@
 //!
 //! [Filters](crate::filters) and [tests](crate::tests) can take values as arguments
 //! but optionally also rust types directly.  This conversion for function arguments
-//! is performed by the [`FunctionArgs`] trait.
+//! is performed by the [`FunctionArgs`] and related traits ([`ArgType`], [`FunctionResult`]).
 //!
 //! # Memory Management
 //!
@@ -83,7 +83,7 @@ use crate::utils::OnDrop;
 use crate::value::serialize::ValueSerializer;
 use crate::vm::State;
 
-pub use crate::value::argtypes::{ArgType, FunctionArgs};
+pub use crate::value::argtypes::{ArgType, FunctionArgs, FunctionResult};
 pub use crate::value::object::Object;
 
 mod argtypes;
@@ -618,8 +618,9 @@ impl Value {
     }
 
     /// Iterates over the value.
-    pub(crate) fn iter(&self) -> ValueIterator {
+    pub(crate) fn try_iter(&self) -> Result<ValueIterator, Error> {
         let (iter_state, len) = match self.0 {
+            ValueRepr::None | ValueRepr::Undefined => (ValueIteratorState::Empty, 0),
             ValueRepr::Seq(ref seq) => (ValueIteratorState::Seq(0, Arc::clone(seq)), seq.len()),
             #[cfg(feature = "preserve_order")]
             ValueRepr::Map(ref items) => {
@@ -633,9 +634,14 @@ impl Value {
                 ),
                 items.len(),
             ),
-            _ => (ValueIteratorState::Empty, 0),
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::ImpossibleOperation,
+                    "object is not iterable",
+                ))
+            }
         };
-        ValueIterator { iter_state, len }
+        Ok(ValueIterator { iter_state, len })
     }
 }
 
@@ -758,117 +764,6 @@ impl ValueIteratorState {
     }
 }
 
-/// Utility macro to create a value from a literal
-#[cfg(test)]
-macro_rules! value {
-    ($value:expr) => {
-        Value::from_serializable(&$value)
-    };
-}
-
-#[test]
-fn test_adding() {
-    let err = ops::add(&value!("a"), &value!(42)).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "impossible operation: tried to use + operator on unsupported types string and number"
-    );
-
-    assert_eq!(ops::add(&value!(1), &value!(2)), Ok(value!(3)));
-    assert_eq!(
-        ops::add(&value!("foo"), &value!("bar")),
-        Ok(value!("foobar"))
-    );
-}
-
-#[test]
-fn test_subtracting() {
-    let err = ops::sub(&value!("a"), &value!(42)).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "impossible operation: tried to use - operator on unsupported types string and number"
-    );
-
-    let err = ops::sub(&value!("foo"), &value!("bar")).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "impossible operation: tried to use - operator on unsupported types string and string"
-    );
-
-    assert_eq!(ops::sub(&value!(2), &value!(1)), Ok(value!(1)));
-}
-
-#[test]
-fn test_dividing() {
-    let err = ops::div(&value!("a"), &value!(42)).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "impossible operation: tried to use / operator on unsupported types string and number"
-    );
-
-    let err = ops::div(&value!("foo"), &value!("bar")).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "impossible operation: tried to use / operator on unsupported types string and string"
-    );
-
-    assert_eq!(ops::div(&value!(100), &value!(2)), Ok(value!(50.0)));
-}
-
-#[test]
-fn test_concat() {
-    assert_eq!(
-        ops::string_concat(Value::from("foo"), &Value::from(42)),
-        Value::from("foo42")
-    );
-    assert_eq!(
-        ops::string_concat(Value::from(23), &Value::from(42)),
-        Value::from("2342")
-    );
-}
-
-#[test]
-fn test_sort() {
-    let mut v = vec![
-        Value::from(100u64),
-        Value::from(80u32),
-        Value::from(30i16),
-        Value::from(true),
-        Value::from(false),
-        Value::from(99i128),
-        Value::from(1000f32),
-    ];
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-    insta::assert_debug_snapshot!(&v, @r###"
-    [
-        false,
-        true,
-        30,
-        80,
-        99,
-        100,
-        1000.0,
-    ]
-    "###);
-}
-
-#[test]
-fn test_safe_string_roundtrip() {
-    let v = Value::from_safe_string("<b>HTML</b>".into());
-    let v2 = Value::from_serializable(&v);
-    assert!(v.is_safe());
-    assert!(v2.is_safe());
-    assert_eq!(v.to_string(), v2.to_string());
-}
-
-#[test]
-fn test_undefined_roundtrip() {
-    let v = Value::UNDEFINED;
-    let v2 = Value::from_serializable(&v);
-    assert!(v.is_undefined());
-    assert!(v2.is_undefined());
-}
-
 #[test]
 fn test_dynamic_object_roundtrip() {
     #[derive(Debug)]
@@ -904,69 +799,7 @@ fn test_dynamic_object_roundtrip() {
 }
 
 #[test]
-fn test_string_key_lookup() {
-    let mut m = BTreeMap::new();
-    m.insert(Key::String(Arc::new("foo".into())), Value::from(42));
-    let m = Value::from(m);
-    assert_eq!(m.get_item(&Value::from("foo")).unwrap(), Value::from(42));
-}
-
-#[test]
-fn test_int_key_lookup() {
-    let mut m = BTreeMap::new();
-    m.insert(Key::I64(42), Value::from(42));
-    m.insert(Key::I64(23), Value::from(23));
-    let m = Value::from(m);
-    assert_eq!(m.get_item(&Value::from(42.0f32)).unwrap(), Value::from(42));
-    assert_eq!(m.get_item(&Value::from(42u32)).unwrap(), Value::from(42));
-
-    let s = Value::from(vec![42i32, 23]);
-    assert_eq!(s.get_item(&Value::from(0.0f32)).unwrap(), Value::from(42));
-    assert_eq!(s.get_item(&Value::from(0i32)).unwrap(), Value::from(42));
-}
-
-#[test]
-fn test_value_serialization() {
-    // make sure if we serialize to json we get regular values
-    assert_eq!(serde_json::to_string(&Value::UNDEFINED).unwrap(), "null");
-    assert_eq!(
-        serde_json::to_string(&Value::from_safe_string("foo".to_string())).unwrap(),
-        "\"foo\""
-    );
-}
-
-#[test]
 #[cfg(target_pointer_width = "64")]
 fn test_sizes() {
     assert_eq!(std::mem::size_of::<Value>(), 24);
-}
-
-#[test]
-#[cfg(feature = "key_interning")]
-fn test_key_interning() {
-    let mut m = BTreeMap::new();
-    m.insert("x", 1u32);
-
-    let v = Value::from_serializable(&vec![m.clone(), m.clone(), m.clone()]);
-
-    for value in v.iter() {
-        match value.0 {
-            ValueRepr::Map(m) => {
-                let k = m.iter().next().unwrap().0;
-                match k {
-                    Key::String(s) => {
-                        assert_eq!(Arc::strong_count(s), 3);
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[test]
-fn test_float_to_string() {
-    assert_eq!(Value::from(42.4242f64).to_string(), "42.4242");
-    assert_eq!(Value::from(42.0f32).to_string(), "42.0");
 }

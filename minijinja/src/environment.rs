@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::fmt;
+use std::fmt::{self, Write};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -9,7 +9,7 @@ use crate::error::Error;
 use crate::instructions::Instructions;
 use crate::parser::{parse, parse_expr};
 use crate::utils::{AutoEscape, BTreeMapKeysDebug, HtmlEscape};
-use crate::value::{ArgType, FunctionArgs, Value};
+use crate::value::{ArgType, FunctionArgs, FunctionResult, Value, ValueKind};
 use crate::vm::Vm;
 use crate::{filters, functions, tests};
 
@@ -21,8 +21,9 @@ use similar_asserts::assert_eq;
 ///
 /// Templates are stored in the [`Environment`] as bytecode instructions.  With the
 /// [`Environment::get_template`] method that is looked up and returned in form of
-/// this handle.  Such a template can be cheaply copied as it only holds two
-/// pointers.  To render the [`render`](Template::render) method can be used.
+/// this handle.  Such a template can be cheaply copied as it only holds references.
+///
+/// To render the [`render`](Template::render) method can be used.
 #[derive(Copy, Clone)]
 pub struct Template<'env> {
     env: &'env Environment<'env>,
@@ -45,7 +46,6 @@ impl<'env> fmt::Debug for Template<'env> {
 }
 
 /// Represents a compiled template in memory.
-#[derive(Clone)]
 pub(crate) struct CompiledTemplate<'source> {
     instructions: Instructions<'source>,
     blocks: BTreeMap<&'source str, Instructions<'source>>,
@@ -146,6 +146,7 @@ impl<'env> Template<'env> {
         let mut output = String::new();
         let vm = Vm::new(self.env);
         let blocks = &self.compiled.blocks;
+
         vm.eval(
             &self.compiled.instructions,
             root,
@@ -173,7 +174,7 @@ impl<'env> Template<'env> {
     }
 }
 
-type TemplateMap<'source> = BTreeMap<&'source str, CompiledTemplate<'source>>;
+type TemplateMap<'source> = BTreeMap<&'source str, Arc<CompiledTemplate<'source>>>;
 
 #[derive(Clone)]
 enum Source<'source> {
@@ -194,12 +195,8 @@ impl<'source> fmt::Debug for Source<'source> {
 
 /// An abstraction that holds the engine configuration.
 ///
-/// This object holds the central configuration state for templates and their
-/// configuration.  Instances of this type may be modified if no template were
-/// loaded so far.  Modifications on environments after the first template was
-/// loaded will lead to surprising effects and undefined behavior.  For instance
-/// overriding the auto escape callback will no longer have effects to an already
-/// loaded template.
+/// This object holds the central configuration state for templates.  It is also
+/// the container for all loaded templates.
 ///
 /// The environment holds references to the source the templates were created from.
 /// This makes it very inconvenient to pass around unless the templates are static
@@ -211,6 +208,13 @@ For situations where you want to load dynamic templates and share the
 environment it's recommended to turn on the `source` feature and to use the
 [`Source`](crate::source::Source) type with the environment."
 )]
+///
+/// There are generally two ways to construct an environment:
+///
+/// * [`Environment::new`] creates an environment preconfigured with sensible
+///   defaults.  It will contain all built-in filters, tests and globals as well
+///   as a callback for auto escaping based on file extension.
+/// * [`Environment::empty`] creates a completely blank environment.
 #[derive(Clone)]
 pub struct Environment<'source> {
     templates: Source<'source>,
@@ -351,80 +355,6 @@ impl<'source> Environment<'source> {
         }
     }
 
-    /// Sets a new function to select the default auto escaping.
-    ///
-    /// This function is invoked when templates are loaded from the environment
-    /// to determine the default auto escaping behavior.  The function is
-    /// invoked with the name of the template and can make an initial auto
-    /// escaping decision based on that.  The default implementation is to
-    /// turn on escaping depending on the file extension:
-    ///
-    /// * [`Html`](AutoEscape::Html): `.html`, `.htm`, `.xml`
-    #[cfg_attr(
-        feature = "json",
-        doc = r" * [`Json`](AutoEscape::Json): `.json`, `.js`, `.yml`"
-    )]
-    /// * [`None`](AutoEscape::None): _all others_
-    pub fn set_auto_escape_callback<F: Fn(&str) -> AutoEscape + 'static + Sync + Send>(
-        &mut self,
-        f: F,
-    ) {
-        self.default_auto_escape = Arc::new(f);
-    }
-
-    /// Enable or disable the debug mode.
-    ///
-    /// When the debug mode is enabled the engine will dump out some of the
-    /// execution state together with the source information of the executing
-    /// template when an error is created.  The cost of this is relatively
-    /// high as the data including the template source is cloned.
-    ///
-    /// However providing this information greatly improves the debug information
-    /// that the template error provides.  When debug is enabled errors will
-    /// return a [`DebugInfo`](crate::error::DebugInfo) object from
-    /// [`Error::debug_info`](crate::error::Error::debug_info).
-    ///
-    /// This requires the `debug` feature.  This is enabled by default if
-    /// debug assertions are enabled and false otherwise.
-    #[cfg(feature = "debug")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "debug")))]
-    pub fn set_debug(&mut self, enabled: bool) {
-        self.debug = enabled;
-    }
-
-    #[cfg(feature = "debug")]
-    pub(crate) fn debug(&self) -> bool {
-        self.debug
-    }
-
-    /// Sets the template source for the environment.
-    ///
-    /// This helps when working with dynamically loaded templates.  The
-    /// [`Source`](crate::source::Source) is consulted by the environment to
-    /// look up templates that are requested.  The source has the capabilities
-    /// to load templates with fewer lifetime restrictions and can also
-    /// load templates dynamically at runtime as requested.
-    ///
-    /// When a source is set already loaded templates in the environment are
-    /// discarded and replaced with the templates from the source.
-    ///
-    /// For more information see [`Source`](crate::source::Source).
-    #[cfg(feature = "source")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "source")))]
-    pub fn set_source(&mut self, source: crate::source::Source) {
-        self.templates = Source::Owned(source);
-    }
-
-    /// Returns the currently set source.
-    #[cfg(feature = "source")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "source")))]
-    pub fn source(&self) -> Option<&crate::source::Source> {
-        match self.templates {
-            Source::Borrowed(_) => None,
-            Source::Owned(ref source) => Some(source),
-        }
-    }
-
     /// Loads a template from a string.
     ///
     /// The `name` parameter defines the name of the template which identifies
@@ -433,13 +363,16 @@ impl<'source> Environment<'source> {
     ///
     /// Note that there are situations where the interface of this method is
     /// too restrictive.  For instance the environment itself does not permit
-    /// any form of sensible dynamic template loading.  To address this
-    /// restriction use [`set_source`](Self::set_source).
+    /// any form of sensible dynamic template loading.
+    #[cfg_attr(
+        feature = "source",
+        doc = "To address this restriction use [`set_source`](Self::set_source)."
+    )]
     pub fn add_template(&mut self, name: &'source str, source: &'source str) -> Result<(), Error> {
         match self.templates {
             Source::Borrowed(ref mut map) => {
                 let compiled_template = CompiledTemplate::from_name_and_source(name, source)?;
-                map.insert(name, compiled_template);
+                map.insert(name, Arc::new(compiled_template));
                 Ok(())
             }
             #[cfg(feature = "source")]
@@ -528,13 +461,13 @@ impl<'source> Environment<'source> {
         let mut output = String::new();
         let vm = Vm::new(self);
         let blocks = &compiled.blocks;
-        let macros = &compiled.macros;
+        let macros = compiled.macros;
         let initial_auto_escape = self.get_initial_auto_escape(name);
         vm.eval(
             &compiled.instructions,
             root,
             blocks,
-            macros,
+            &macros,
             initial_auto_escape,
             &mut output,
         )?;
@@ -557,6 +490,78 @@ impl<'source> Environment<'source> {
             &mut output,
         )?;
         Ok(output)
+    }
+
+    /// Sets a new function to select the default auto escaping.
+    ///
+    /// This function is invoked when templates are loaded from the environment
+    /// to determine the default auto escaping behavior.  The function is
+    /// invoked with the name of the template and can make an initial auto
+    /// escaping decision based on that.  The default implementation is to
+    /// turn on escaping depending on the file extension:
+    ///
+    /// * [`Html`](AutoEscape::Html): `.html`, `.htm`, `.xml`
+    #[cfg_attr(
+        feature = "json",
+        doc = r" * [`Json`](AutoEscape::Json): `.json`, `.js`, `.yml`"
+    )]
+    /// * [`None`](AutoEscape::None): _all others_
+    pub fn set_auto_escape_callback<F: Fn(&str) -> AutoEscape + 'static + Sync + Send>(
+        &mut self,
+        f: F,
+    ) {
+        self.default_auto_escape = Arc::new(f);
+    }
+
+    /// Enable or disable the debug mode.
+    ///
+    /// When the debug mode is enabled the engine will dump out some of the
+    /// execution state together with the source information of the executing
+    /// template when an error is created.  The cost of this is relatively
+    /// high as the data including the template source is cloned.
+    ///
+    /// When this is enabled templates will print debug information with source
+    /// context when the error is printed.
+    ///
+    /// This requires the `debug` feature.  This is enabled by default if
+    /// debug assertions are enabled and false otherwise.
+    #[cfg(feature = "debug")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "debug")))]
+    pub fn set_debug(&mut self, enabled: bool) {
+        self.debug = enabled;
+    }
+
+    #[cfg(feature = "debug")]
+    pub(crate) fn debug(&self) -> bool {
+        self.debug
+    }
+
+    /// Sets the template source for the environment.
+    ///
+    /// This helps when working with dynamically loaded templates.  The
+    /// [`Source`](crate::source::Source) is consulted by the environment to
+    /// look up templates that are requested.  The source has the capabilities
+    /// to load templates with fewer lifetime restrictions and can also
+    /// load templates dynamically at runtime as requested.
+    ///
+    /// When a source is set already loaded templates in the environment are
+    /// discarded and replaced with the templates from the source.
+    ///
+    /// For more information see [`Source`](crate::source::Source).
+    #[cfg(feature = "source")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "source")))]
+    pub fn set_source(&mut self, source: crate::source::Source) {
+        self.templates = Source::Owned(source);
+    }
+
+    /// Returns the currently set source.
+    #[cfg(feature = "source")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "source")))]
+    pub fn source(&self) -> Option<&crate::source::Source> {
+        match self.templates {
+            Source::Borrowed(_) => None,
+            Source::Owned(ref source) => Some(source),
+        }
     }
 
     /// Compiles an expression.
@@ -583,12 +588,14 @@ impl<'source> Environment<'source> {
 
     /// Adds a new filter function.
     ///
-    /// For details about filters have a look at [`filters`].
+    /// Filter functions are functions that can be applied to values in
+    /// templates.  For details about filters have a look at
+    /// [`Filter`](crate::filters::Filter).
     pub fn add_filter<F, V, Rv, Args>(&mut self, name: &'source str, f: F)
     where
-        V: for<'a> ArgType<'a>,
-        Rv: Into<Value>,
         F: filters::Filter<V, Rv, Args>,
+        V: for<'a> ArgType<'a>,
+        Rv: FunctionResult,
         Args: for<'a> FunctionArgs<'a>,
     {
         self.filters.insert(name, filters::BoxedFilter::new(f));
@@ -601,11 +608,14 @@ impl<'source> Environment<'source> {
 
     /// Adds a new test function.
     ///
-    /// For details about tests have a look at [`tests`].
-    pub fn add_test<F, V, Args>(&mut self, name: &'source str, f: F)
+    /// Test functions are similar to filters but perform a check on a value
+    /// where the return value is always true or false.  For details about tests
+    /// have a look at [`Test`](crate::tests::Test).
+    pub fn add_test<F, V, Rv, Args>(&mut self, name: &'source str, f: F)
     where
         V: for<'a> ArgType<'a>,
-        F: tests::Test<V, Args>,
+        Rv: tests::TestResult,
+        F: tests::Test<V, Rv, Args>,
         Args: for<'a> FunctionArgs<'a>,
     {
         self.tests.insert(name, tests::BoxedTest::new(f));
@@ -656,7 +666,7 @@ impl<'source> Environment<'source> {
     /// functions and other global variables share the same namespace.
     pub fn add_function<F, Rv, Args>(&mut self, name: &'source str, f: F)
     where
-        Rv: Into<Value>,
+        Rv: FunctionResult,
         F: functions::Function<Rv, Args>,
         Args: for<'a> FunctionArgs<'a>,
     {
@@ -698,8 +708,6 @@ impl<'source> Environment<'source> {
         autoescape: AutoEscape,
         out: &mut String,
     ) -> Result<(), Error> {
-        use std::fmt::Write;
-
         // safe values do not get escaped
         if value.is_safe() {
             write!(out, "{}", value).unwrap();
@@ -709,13 +717,7 @@ impl<'source> Environment<'source> {
         // TODO: this should become pluggable
         match autoescape {
             AutoEscape::None => write!(out, "{}", value).unwrap(),
-            AutoEscape::Html => {
-                if let Some(s) = value.as_str() {
-                    write!(out, "{}", HtmlEscape(s)).unwrap()
-                } else {
-                    write!(out, "{}", HtmlEscape(&value.to_string())).unwrap()
-                }
-            }
+            AutoEscape::Html => html_escape_value(out, value),
             #[cfg(feature = "json")]
             AutoEscape::Json => {
                 let value = serde_json::to_string(&value).map_err(|err| {
@@ -739,6 +741,19 @@ impl<'source> Environment<'source> {
         out: &mut String,
     ) -> Result<(), Error> {
         self.escape(value, autoescape, out)
+    }
+}
+
+pub fn html_escape_value(out: &mut String, value: &Value) {
+    if matches!(
+        value.kind(),
+        ValueKind::Undefined | ValueKind::None | ValueKind::Bool | ValueKind::Number
+    ) {
+        write!(out, "{}", value).unwrap()
+    } else if let Some(s) = value.as_str() {
+        write!(out, "{}", HtmlEscape(s)).unwrap()
+    } else {
+        write!(out, "{}", HtmlEscape(&value.to_string())).unwrap()
     }
 }
 

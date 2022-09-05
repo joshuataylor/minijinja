@@ -12,7 +12,7 @@ fn main() {
 {% endmacro %}";
 
     let mut env = Environment::new();
-    env.add_macro("", my_macro);
+    env.add_macro("", "", my_macro);
     env.add_template(
         "demo.html",
         // "x"

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::ast::{self, Spanned};
 use crate::error::{Error, ErrorKind};
 use crate::lexer::tokenize;
@@ -17,40 +19,40 @@ macro_rules! syntax_error {
     }};
 }
 
+fn unexpected<D: fmt::Display>(unexpected: D, expected: &str) -> Error {
+    Error::new(
+        ErrorKind::SyntaxError,
+        format!("unexpected {}, expected {}", unexpected, expected),
+    )
+}
+
+fn unexpected_eof(expected: &str) -> Error {
+    unexpected("end of input", expected)
+}
+
+fn make_const(value: Value, span: Span) -> ast::Expr<'static> {
+    ast::Expr::Const(Spanned::new(ast::Const { value }, span))
+}
+
 macro_rules! expect_token {
     ($parser:expr, $expectation:expr) => {{
         match $parser.stream.next()? {
             Some(rv) => Ok(rv),
-            None => Err(Error::new(
-                ErrorKind::SyntaxError,
-                format!("unexpected end of input, expected {}", $expectation),
-            )),
+            None => Err(unexpected_eof($expectation)),
         }
     }};
     ($parser:expr, $match:pat, $expectation:expr) => {{
         match $parser.stream.next()? {
             Some((token, span)) if matches!(token, $match) => Ok((token, span)),
-            Some((token, _)) => Err(Error::new(
-                ErrorKind::SyntaxError,
-                format!("unexpected {}, expected {}", token, $expectation),
-            )),
-            None => Err(Error::new(
-                ErrorKind::SyntaxError,
-                format!("unexpected end of input, expected {}", $expectation),
-            )),
+            Some((token, _)) => Err(unexpected(token, $expectation)),
+            None => Err(unexpected_eof($expectation)),
         }
     }};
     ($parser:expr, $match:pat => $target:expr, $expectation:expr) => {{
         match $parser.stream.next()? {
             Some(($match, span)) => Ok(($target, span)),
-            Some((token, _)) => Err(Error::new(
-                ErrorKind::SyntaxError,
-                format!("unexpected {}, expected {}", token, $expectation),
-            )),
-            None => Err(Error::new(
-                ErrorKind::SyntaxError,
-                format!("unexpected end of input, expected {}", $expectation),
-            )),
+            Some((token, _)) => Err(unexpected(token, $expectation)),
+            None => Err(unexpected_eof($expectation)),
         }
     }};
 }
@@ -605,12 +607,7 @@ impl<'a> Parser<'a> {
         let (token, span) = expect_token!(self, "expression")?;
         macro_rules! const_val {
             ($expr:expr) => {
-                ast::Expr::Const(Spanned::new(
-                    ast::Const {
-                        value: Value::from($expr),
-                    },
-                    span,
-                ))
+                make_const(Value::from($expr), span)
             };
         }
 
@@ -622,78 +619,82 @@ impl<'a> Parser<'a> {
             Token::Str(val) => Ok(const_val!(val)),
             Token::Int(val) => Ok(const_val!(val)),
             Token::Float(val) => Ok(const_val!(val)),
-            Token::ParenOpen => {
-                // MiniJinja does not really have tuples, but it treats the tuple
-                // syntax the same as lists.
-                if matches!(self.stream.current()?, Some((Token::ParenClose, _))) {
-                    self.stream.next()?;
-                    return Ok(ast::Expr::List(Spanned::new(
-                        ast::List { items: vec![] },
-                        self.stream.expand_span(span),
-                    )));
-                }
-
-                let mut expr = self.parse_expr()?;
-                if matches!(self.stream.current()?, Some((Token::Comma, _))) {
-                    let mut items = vec![expr];
-                    loop {
-                        if matches!(self.stream.current()?, Some((Token::ParenClose, _))) {
-                            break;
-                        }
-                        expect_token!(self, Token::Comma, "`,`")?;
-                        if matches!(self.stream.current()?, Some((Token::ParenClose, _))) {
-                            break;
-                        }
-                        items.push(self.parse_expr()?);
-                    }
-                    expr = ast::Expr::List(Spanned::new(
-                        ast::List { items },
-                        self.stream.expand_span(span),
-                    ));
-                }
-
-                expect_token!(self, Token::ParenClose, "`)`")?;
-                Ok(expr)
-            }
-            Token::BracketOpen => {
-                let mut items = Vec::new();
-                loop {
-                    if matches!(self.stream.current()?, Some((Token::BracketClose, _))) {
-                        break;
-                    }
-                    if !items.is_empty() {
-                        expect_token!(self, Token::Comma, "`,`")?;
-                    }
-                    items.push(self.parse_expr()?);
-                }
-                expect_token!(self, Token::BracketClose, "`]`")?;
-                Ok(ast::Expr::List(Spanned::new(
-                    ast::List { items },
-                    self.stream.expand_span(span),
-                )))
-            }
-            Token::BraceOpen => {
-                let mut keys = Vec::new();
-                let mut values = Vec::new();
-                loop {
-                    if matches!(self.stream.current()?, Some((Token::BraceClose, _))) {
-                        break;
-                    }
-                    if !keys.is_empty() {
-                        expect_token!(self, Token::Comma, "`,`")?;
-                    }
-                    keys.push(self.parse_expr()?);
-                    expect_token!(self, Token::Colon, "`:`")?;
-                    values.push(self.parse_expr()?);
-                }
-                expect_token!(self, Token::BraceClose, "`]`")?;
-                Ok(ast::Expr::Map(Spanned::new(
-                    ast::Map { keys, values },
-                    self.stream.expand_span(span),
-                )))
-            }
+            Token::ParenOpen => self.parse_tuple_or_expression(span),
+            Token::BracketOpen => self.parse_list_expr(span),
+            Token::BraceOpen => self.parse_map_expr(span),
             token => syntax_error!("unexpected {}", token),
         }
+    }
+
+    fn parse_list_expr(&mut self, span: Span) -> Result<ast::Expr<'a>, Error> {
+        let mut items = Vec::new();
+        loop {
+            if matches!(self.stream.current()?, Some((Token::BracketClose, _))) {
+                break;
+            }
+            if !items.is_empty() {
+                expect_token!(self, Token::Comma, "`,`")?;
+            }
+            items.push(self.parse_expr()?);
+        }
+        expect_token!(self, Token::BracketClose, "`]`")?;
+        Ok(ast::Expr::List(Spanned::new(
+            ast::List { items },
+            self.stream.expand_span(span),
+        )))
+    }
+
+    fn parse_map_expr(&mut self, span: Span) -> Result<ast::Expr<'a>, Error> {
+        let mut keys = Vec::new();
+        let mut values = Vec::new();
+        loop {
+            if matches!(self.stream.current()?, Some((Token::BraceClose, _))) {
+                break;
+            }
+            if !keys.is_empty() {
+                expect_token!(self, Token::Comma, "`,`")?;
+            }
+            keys.push(self.parse_expr()?);
+            expect_token!(self, Token::Colon, "`:`")?;
+            values.push(self.parse_expr()?);
+        }
+        expect_token!(self, Token::BraceClose, "`]`")?;
+        Ok(ast::Expr::Map(Spanned::new(
+            ast::Map { keys, values },
+            self.stream.expand_span(span),
+        )))
+    }
+
+    fn parse_tuple_or_expression(&mut self, span: Span) -> Result<ast::Expr<'a>, Error> {
+        // MiniJinja does not really have tuples, but it treats the tuple
+        // syntax the same as lists.
+        if matches!(self.stream.current()?, Some((Token::ParenClose, _))) {
+            self.stream.next()?;
+            return Ok(ast::Expr::List(Spanned::new(
+                ast::List { items: vec![] },
+                self.stream.expand_span(span),
+            )));
+        }
+        let mut expr = self.parse_expr()?;
+        if matches!(self.stream.current()?, Some((Token::Comma, _))) {
+            let mut items = vec![expr];
+            loop {
+                if matches!(self.stream.current()?, Some((Token::ParenClose, _))) {
+                    break;
+                }
+                expect_token!(self, Token::Comma, "`,`")?;
+                if matches!(self.stream.current()?, Some((Token::ParenClose, _))) {
+                    break;
+                }
+                items.push(self.parse_expr()?);
+            }
+            expr = ast::Expr::List(Spanned::new(
+                ast::List { items },
+                self.stream.expand_span(span),
+            ));
+        }
+        expect_token!(self, Token::ParenClose, "`)`")?;
+        Ok(expr)
     }
 
     pub fn parse_expr(&mut self) -> Result<ast::Expr<'a>, Error> {

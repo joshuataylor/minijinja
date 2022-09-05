@@ -1,6 +1,6 @@
 [package]
 name = "minijinja"
-version = "0.19.1"
+version = "0.20.0"
 edition = "2018"
 license = "Apache-2.0"
 authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
@@ -10,6 +10,7 @@ repository = "https://github.com/mitsuhiko/minijinja"
 keywords = ["jinja", "jinja2", "templates"]
 readme = "README.md"
 rust-version = "1.45"
+exclude = ["tests"]
 
 [package.metadata.docs.rs]
 features = ["source", "json", "urlencode"]
@@ -28,8 +29,6 @@ json = ["serde_json"]
 urlencode = ["percent-encoding"]
 macros = ["indexmap"]
 
-# this feature no longer has any effect
-sync = []
 # enables the Debug trait for some internal types
 internal_debug = []
 # provides access to the unstable machinery
@@ -48,7 +47,3 @@ memo-map = { version = "0.3.1", optional = true }
 insta = { version = "1.19.0", features = ["glob", "serde"] }
 serde_json = "1.0.68"
 similar-asserts = "1.4.2"
-
-[[test]]
-name = "test_templates"
-required-features = ["unstable_machinery", "internal_debug"]

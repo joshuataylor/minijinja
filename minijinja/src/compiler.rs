@@ -365,7 +365,7 @@ impl<'source> Compiler<'source> {
                     args: mc.args.clone(),
                 };
                 self.macros.insert(mc.name, block);
-                self.add(Instruction::StoreMacro(mc.name));
+                // self.add(Instruction::StoreMacro(mc.name));
             }
             ast::Stmt::Do(dob) => {
                 self.set_location_from_span(dob.span());
