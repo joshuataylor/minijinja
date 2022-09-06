@@ -1,7 +1,4 @@
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-
+use crate::compiler::codegen::Macro;
 use crate::compiler::instructions::{
     Instruction, Instructions, LOOP_FLAG_RECURSIVE, LOOP_FLAG_WITH_LOOP_VAR,
 };
@@ -13,6 +10,9 @@ use crate::utils::AutoEscape;
 use crate::value::{self, ops, Value, ValueRepr};
 use crate::vm::context::{Context, Frame, FrameBase, Stack};
 use crate::vm::forloop::{ForLoop, LoopState};
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 pub use crate::vm::state::State;
 
@@ -38,6 +38,7 @@ impl<'env> Vm<'env> {
         instructions: &Instructions<'env>,
         root: Value,
         blocks: &BTreeMap<&'env str, Instructions<'env>>,
+        macros: &BTreeMap<&'env str, Macro<'env>>,
         out: &mut Output,
     ) -> Result<Option<Value>, Error> {
         let mut ctx = Context::default();
@@ -54,6 +55,7 @@ impl<'env> Vm<'env> {
                 instructions,
                 out,
                 blocks: referenced_blocks,
+                macros: macros,
             })
         })
     }
@@ -272,7 +274,12 @@ impl<'env> Vm<'env> {
                     state.current_block = Some(name);
                     if let Some(layers) = state.blocks.get(name) {
                         let instructions = layers.first().unwrap();
-                        try_ctx!(self.sub_eval(state, instructions, state.blocks.clone()));
+                        try_ctx!(self.sub_eval(
+                            state,
+                            instructions,
+                            state.blocks.clone(),
+                            state.macros
+                        ));
                     } else {
                         bail!(Error::new(
                             ErrorKind::ImpossibleOperation,
@@ -349,6 +356,37 @@ impl<'env> Vm<'env> {
                         recurse_loop!(true);
                     } else if let Some(func) = state.ctx.load(self.env, function_name) {
                         stack.push(try_ctx!(func.call(state, args)));
+                    } else if let Some((found_macro, macro_args)) =
+                        self.env.macros.get(function_name)
+                    {
+                        let mut sub_context = Context::default();
+                        sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+                        let mut output_string = String::new();
+                        let mut output =
+                            Output::with_string(&mut output_string, state.auto_escape());
+
+                        let mut sub_state = State {
+                            env: self.env,
+                            ctx: sub_context,
+                            current_block: Some(function_name),
+                            out: &mut output,
+                            instructions: &found_macro.instructions,
+                            blocks: state.blocks.clone(),
+                            macros: &state.macros,
+                        };
+                        for (index, (arg_name, _expr)) in found_macro.args.iter().enumerate() {
+                            match args.get(index) {
+                                None => match macro_args.get(index).unwrap() {
+                                    None => (),
+                                    Some(a) => sub_state.ctx.store(&arg_name, a.clone()),
+                                },
+                                Some(a) => sub_state.ctx.store(&arg_name, a.clone()),
+                            };
+                        }
+
+                        self.eval_state(&mut sub_state)?;
+
+                        stack.push(Value::from(output_string));
                     } else {
                         bail!(Error::new(
                             ErrorKind::ImpossibleOperation,
@@ -379,6 +417,161 @@ impl<'env> Vm<'env> {
                 }
                 Instruction::FastRecurse => {
                     recurse_loop!(false);
+                }
+                Instruction::Slice(has_start, has_finish) => {
+                    let value = stack.pop();
+                    let start = if *has_start {
+                        let x = stack.pop();
+                        let s = match x.0 {
+                            ValueRepr::U64(x) => x as i128,
+                            ValueRepr::I64(x) => x as i128,
+                            ValueRepr::F64(x) => x as i128,
+                            // ValueRepr::U128(x) => x as i128,
+                            ValueRepr::I128(x) => *x,
+                            x => {
+                                println!("was given.. {:?}", x);
+                                unreachable!()
+                            }
+                        };
+                        Some(s)
+                    } else {
+                        None
+                    };
+                    let end = if *has_finish {
+                        let x = stack.pop();
+                        let s = match x.0 {
+                            ValueRepr::U64(x) => x as i128,
+                            ValueRepr::I64(x) => x as i128,
+                            ValueRepr::F64(x) => x as i128,
+                            // ValueRepr::U128(x) => x as i128,
+                            ValueRepr::I128(x) => *x,
+                            _ => unreachable!(),
+                        };
+                        Some(s)
+                    } else {
+                        None
+                    };
+
+                    match value.0 {
+                        ValueRepr::String(string) | ValueRepr::SafeString(string) => {
+                            let length = string.len();
+
+                            // If there is a start index, but there is no end index, take from the start index to the end of the String.
+                            // If there both a start index and an end number, take from the supplied start index to the end index.
+                            // If there is no start index, but there is a start number, take from String length minus start index to the end of the Vec.
+                            let return_value = match (start, end) {
+                                (Some(s), None) if s > 0 => match string.get(s as usize..length) {
+                                    None => "",
+                                    Some(x) => x,
+                                },
+                                (Some(s), None) if s < 0 => {
+                                    match string.get(length - s.abs() as usize..length) {
+                                        None => "",
+                                        Some(x) => x,
+                                    }
+                                }
+                                (Some(s), Some(_e)) if s < 0 => "",
+                                (Some(s), Some(e)) if s >= 0 && e < 0 => {
+                                    match string.get(s as usize..length - (e.abs() as usize)) {
+                                        None => "",
+                                        Some(x) => x,
+                                    }
+                                }
+                                (Some(s), Some(e)) if s >= 0 => {
+                                    match string.get(s as usize..e as usize) {
+                                        None => "",
+                                        Some(x) => x,
+                                    }
+                                }
+                                (None, Some(e)) if e >= 0 => match string.get(0..e as usize) {
+                                    None => "",
+                                    Some(x) => x,
+                                },
+                                (None, Some(e)) if e < 0 => {
+                                    match string.get(0..length - (e.abs() as usize)) {
+                                        None => "",
+                                        Some(x) => x,
+                                    }
+                                }
+                                _ => "",
+                            };
+
+                            stack.push(Value::from(return_value));
+                        }
+                        ValueRepr::Seq(items) => {
+                            let length = items.len();
+
+                            // If there is a start index, but there is no end index, take from the start index to the end of the Vec.
+                            // If there both a start index and an end number, take from the supplied start index to the end index.
+                            // If there is no start index, but there is a start number, take from Vec length minus start index to the end of the Vec.
+                            let return_value = match (start, end) {
+                                (Some(s), None) => &items[s as usize..length],
+                                (Some(s), Some(e)) if (s < 0 && e < 0) => &[],
+                                (Some(s), Some(e)) if (s > 0 && e < 0) => {
+                                    &items[s as usize..(length as i128 - e) as usize]
+                                }
+                                (Some(s), Some(e)) if (e > length as i128) => {
+                                    &items[s as usize..length]
+                                }
+                                (Some(s), Some(e)) if (s < 0 && e > 0) => {
+                                    &items[(length as i128 - s.abs()) as usize..e as usize]
+                                }
+                                (Some(s), Some(e)) => &items[s as usize..e as usize],
+                                (None, Some(e)) if e > 0 => &items[0..e as usize],
+                                (None, Some(e)) => &items[0..length - (e.abs() as usize)],
+                                _ => &[],
+                            };
+
+                            stack.push(Value::from(return_value.to_vec()));
+                        }
+                        _ => bail!(Error::new(
+                            ErrorKind::ImpossibleOperation,
+                            "Slice can only be on a string or a sequence"
+                        )),
+                    }
+                }
+                Instruction::EndCaptureMacro => {
+                    let captured = state.out.end_capture();
+                    // println!("captured: {:?}", captured);
+                    stack.push(captured.clone());
+                    state.ctx.store("_caller", captured.clone());
+                }
+                Instruction::CallMacro(name) => {
+                    let found_macro = match state.env.macros.get(name) {
+                        None => {
+                            let found_macro = state.macros.get(name);
+                            if !found_macro.is_some() {
+                                bail!(Error::new(
+                                    ErrorKind::SyntaxError,
+                                    format!("Macro {} is not defined", name)
+                                ));
+                            }
+                            found_macro.unwrap()
+                        }
+                        Some((found_macro, _macro_args)) => found_macro,
+                    };
+
+                    let mut sub_context = Context::default();
+                    sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+                    let mut output_string = String::new();
+                    let mut output = Output::with_string(&mut output_string, state.auto_escape());
+
+                    let mut sub_state = State {
+                        env: self.env,
+                        ctx: sub_context,
+                        current_block: Some(name),
+                        out: &mut output,
+                        instructions: &found_macro.instructions,
+                        blocks: state.blocks.clone(),
+                        macros: &state.macros,
+                    };
+                    for (arg_name, _) in &found_macro.args {
+                        sub_state.ctx.store(&arg_name, stack.pop());
+                    }
+
+                    self.eval_state(&mut sub_state)?;
+
+                    stack.push(Value::from(output_string));
                 }
             }
             pc += 1;
@@ -424,7 +617,7 @@ impl<'env> Vm<'env> {
             }
             let original_escape = state.out.auto_escape;
             state.out.auto_escape = tmpl.initial_auto_escape();
-            self.sub_eval(state, instructions, referenced_blocks)?;
+            self.sub_eval(state, instructions, referenced_blocks, state.macros)?;
             state.out.auto_escape = original_escape;
             return Ok(());
         }
@@ -470,7 +663,7 @@ impl<'env> Vm<'env> {
             if capture {
                 state.out.begin_capture();
             }
-            self.sub_eval(state, instructions, state.blocks.clone())?;
+            self.sub_eval(state, instructions, state.blocks.clone(), state.macros)?;
             if capture {
                 Ok(state.out.end_capture())
             } else {
@@ -606,6 +799,7 @@ impl<'env> Vm<'env> {
         state: &mut State<'_, 'env, '_, '_>,
         instructions: &Instructions<'env>,
         blocks: BTreeMap<&'env str, Vec<&'_ Instructions<'env>>>,
+        macros: &BTreeMap<&'env str, Macro<'env>>,
     ) -> Result<(), Error> {
         let mut sub_context = Context::default();
         sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
@@ -616,6 +810,7 @@ impl<'env> Vm<'env> {
             out: state.out,
             instructions,
             blocks,
+            macros,
         })?;
         Ok(())
     }

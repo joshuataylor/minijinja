@@ -1,0 +1,11 @@
+---
+source: minijinja/tests/test_templates.rs
+expression: "&rendered"
+input_file: minijinja/tests/inputs/macro_basic.txt
+---
+
+---
+
+    hello from macro
+
+

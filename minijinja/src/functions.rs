@@ -250,6 +250,12 @@ mod builtins {
     pub fn debug(state: &State) -> String {
         format!("{:#?}", state)
     }
+
+    /// Outputs the caller of the current macro.
+    #[cfg(feature = "macros")]
+    pub fn caller(state: &State) -> Result<Value, Error> {
+        Ok(Value::from(state.lookup("_caller").unwrap()))
+    }
 }
 
 #[cfg(feature = "builtins")]

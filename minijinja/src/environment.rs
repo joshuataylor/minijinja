@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-use crate::compiler::codegen::CodeGenerator;
-use crate::compiler::parser::parse_expr;
+use crate::compiler::ast::Expr;
+use crate::compiler::codegen::{CodeGenerator, Macro};
+use crate::compiler::parser::{parse, parse_expr};
 use crate::error::{attach_basic_debug_info, Error};
 use crate::expression::Expression;
 use crate::output::Output;
@@ -65,6 +66,7 @@ pub struct Environment<'source> {
     filters: BTreeMap<&'source str, filters::BoxedFilter>,
     tests: BTreeMap<&'source str, tests::BoxedTest>,
     pub(crate) globals: BTreeMap<&'source str, Value>,
+    pub(crate) macros: BTreeMap<&'source str, (Macro<'source>, Vec<Option<Value>>)>,
     default_auto_escape: Arc<AutoEscapeFunc>,
     formatter: Arc<FormatterFunc>,
     #[cfg(feature = "debug")]
@@ -101,6 +103,7 @@ impl<'source> Environment<'source> {
             filters: defaults::get_builtin_filters(),
             tests: defaults::get_builtin_tests(),
             globals: defaults::get_globals(),
+            macros: Default::default(),
             default_auto_escape: Arc::new(defaults::default_auto_escape_callback),
             formatter: Arc::new(defaults::escape_formatter),
             #[cfg(feature = "debug")]
@@ -118,6 +121,7 @@ impl<'source> Environment<'source> {
             filters: Default::default(),
             tests: Default::default(),
             globals: Default::default(),
+            macros: Default::default(),
             default_auto_escape: Arc::new(defaults::no_auto_escape),
             formatter: Arc::new(defaults::escape_formatter),
             #[cfg(feature = "debug")]
@@ -215,6 +219,7 @@ impl<'source> Environment<'source> {
                 &compiled.instructions,
                 root,
                 &compiled.blocks,
+                &compiled.macros,
                 &mut Output::with_string(&mut rv, self.get_initial_auto_escape(name)),
             )
             .map(|_| rv)
@@ -352,7 +357,7 @@ impl<'source> Environment<'source> {
         let ast = parse_expr(expr)?;
         let mut compiler = CodeGenerator::new("<expression>", expr);
         compiler.compile_expr(&ast)?;
-        let (instructions, _) = compiler.finish();
+        let (instructions, _, _) = compiler.finish();
         Ok(Expression::new(self, instructions))
     }
 
@@ -394,6 +399,48 @@ impl<'source> Environment<'source> {
     /// Removes a test by name.
     pub fn remove_test(&mut self, name: &str) {
         self.tests.remove(name);
+    }
+
+    pub fn add_macro(&mut self, prefix: &'source str, name: &'source str, contents: &'source str) {
+        let ast = parse(contents, name).unwrap();
+
+        // let ast = parse_expr(expr)?;
+        let mut compiler = CodeGenerator::new(name, contents);
+        compiler.compile_stmt(&ast).unwrap();
+
+        let (_, _, macros) = compiler.finish();
+        for (macro_name, found_macro) in macros {
+            // get the macro args out. this way they are cached for later.
+            let mut macro_args = Vec::with_capacity(found_macro.args.len());
+
+            // Precompile the arguments now, so we don't have to recompute them later.
+            // This is a pretty quick operation, and saves on recalculating, especially if the macro
+            // is called many times.
+            for (_, expr) in &found_macro.args {
+                let matched_expr = match expr {
+                    Expr::Map(m) => {
+                        if m.values.len() > 0 {
+                            let map_value = m.values.first().expect("Has item");
+                            let mut compiler = CodeGenerator::new(name, contents);
+                            compiler.compile_expr(&map_value).unwrap();
+                            let (instructions2, _, _) = compiler.finish();
+                            let expression_result = Ok(Expression::new(self, instructions2));
+                            let expression_output =
+                                attach_basic_debug_info(expression_result, "macro").unwrap();
+                            Some(expression_output.eval(&()).expect("Expression"))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                // println!("matched_expr: {:?}", matched_expr);
+                macro_args.push(matched_expr);
+            }
+            // println!("macro_name {} macro_args: {:?}", macro_name, macro_args);
+
+            self.macros.insert(macro_name, (found_macro, macro_args));
+        }
     }
 
     /// Adds a new global function.

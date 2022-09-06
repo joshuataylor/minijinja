@@ -1,0 +1,8 @@
+{
+}
+---
+{% macro foo() %}
+    hello from macro
+{% endmacro %}
+---
+{{ foo() }}

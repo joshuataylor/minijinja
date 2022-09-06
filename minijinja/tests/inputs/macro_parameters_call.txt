@@ -1,0 +1,6 @@
+{}
+---
+{% macro say(word) %}
+    {{word}} is the word of the day
+{% endmacro %}
+{{say("world")}}

@@ -27,6 +27,7 @@ source = ["self_cell", "memo-map"]
 builtins = []
 json = ["serde_json"]
 urlencode = ["percent-encoding"]
+macros = ["indexmap"]
 
 # enables the Debug trait for some internal types
 internal_debug = []

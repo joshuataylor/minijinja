@@ -14,6 +14,7 @@ pub const LOOP_FLAG_RECURSIVE: u8 = 2;
 
 /// Represents an instruction for the VM.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone)]
 pub enum Instruction<'source> {
     /// Emits raw source
     EmitRaw(&'source str),
@@ -38,6 +39,15 @@ pub enum Instruction<'source> {
 
     /// Builds a list of the last n pairs on the stack.
     BuildList(usize),
+
+    /// Allows slicing strings and lists.
+    Slice(bool, bool),
+
+    /// Ends capturing of output.
+    EndCaptureMacro,
+
+    /// Calls a macro that is in scope
+    CallMacro(&'source str),
 
     /// Unpacks a list into N stack items.
     UnpackList(usize),
@@ -188,6 +198,7 @@ struct Loc {
 }
 
 /// Wrapper around instructions to help with location management.
+#[derive(Clone)]
 pub struct Instructions<'source> {
     pub(crate) instructions: Vec<Instruction<'source>>,
     locations: Vec<Loc>,
@@ -272,6 +283,7 @@ impl<'source> Instructions<'source> {
             let name = match instr {
                 Instruction::Lookup(name)
                 | Instruction::StoreLocal(name)
+                | Instruction::CallMacro(name)
                 | Instruction::CallFunction(name) => *name,
                 Instruction::PushLoop(flags) if flags & LOOP_FLAG_WITH_LOOP_VAR != 0 => "loop",
                 Instruction::PushLoop(_) | Instruction::PushWith => break,

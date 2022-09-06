@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 use std::{fmt, io};
 
-use serde::Serialize;
-
-use crate::compiler::codegen::CodeGenerator;
+use crate::compiler::codegen::{CodeGenerator, Macro};
 use crate::compiler::instructions::Instructions;
 use crate::compiler::parser::parse;
 use crate::environment::Environment;
@@ -12,6 +10,7 @@ use crate::output::{Output, WriteWrapper};
 use crate::utils::AutoEscape;
 use crate::value::Value;
 use crate::vm::Vm;
+use serde::Serialize;
 
 /// Represents a handle to a template.
 ///
@@ -131,6 +130,7 @@ impl<'env> Template<'env> {
                 &self.compiled.instructions,
                 root,
                 &self.compiled.blocks,
+                &self.compiled.macros,
                 out,
             )
             .map(|_| ())
@@ -156,6 +156,7 @@ impl<'env> Template<'env> {
 pub(crate) struct CompiledTemplate<'source> {
     pub instructions: Instructions<'source>,
     pub blocks: BTreeMap<&'source str, Instructions<'source>>,
+    pub macros: BTreeMap<&'source str, Macro<'source>>,
 }
 
 impl<'env> fmt::Debug for CompiledTemplate<'env> {
@@ -185,10 +186,11 @@ impl<'source> CompiledTemplate<'source> {
         let ast = parse(source, name)?;
         let mut compiler = CodeGenerator::new(name, source);
         compiler.compile_stmt(&ast)?;
-        let (instructions, blocks) = compiler.finish();
+        let (instructions, blocks, macros) = compiler.finish();
         Ok(CompiledTemplate {
             blocks,
             instructions,
+            macros: macros,
         })
     }
 }

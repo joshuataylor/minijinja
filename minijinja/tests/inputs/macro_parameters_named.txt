@@ -1,0 +1,24 @@
+{}
+---
+{% macro greet(first, second, third=[1,2,3]) %}
+    first is {{first}}
+    second is {{second}}
+    third is {{third}}
+{% endmacro %}
+{{greet('one', [4,2,3,4])}}
+
+{% macro second(param) %}
+    second macro goes {{param}}
+{% endmacro %}
+
+{% macro test(my_param = second('hello')) %}
+    hello {{my_param}}
+{% endmacro %}
+
+{{ test() }}
+{{ test('foo') }}
+
+{% macro array_construct(inputs = [], data_type = second('integer')) -%}
+    {{inputs}}{{data_type}}123
+{% endmacro %}
+{{array_construct()}}

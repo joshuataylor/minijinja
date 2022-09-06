@@ -150,6 +150,8 @@ pub(crate) fn get_globals() -> BTreeMap<&'static str, Value> {
         rv.insert("range", BoxedFunction::new(functions::range).to_value());
         rv.insert("dict", BoxedFunction::new(functions::dict).to_value());
         rv.insert("debug", BoxedFunction::new(functions::debug).to_value());
+        #[cfg(feature = "macros")]
+        rv.insert("caller", BoxedFunction::new(functions::caller).to_value());
     }
     rv
 }

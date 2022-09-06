@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use crate::compiler::codegen::Macro;
 use crate::compiler::instructions::Instructions;
 use crate::environment::Environment;
 use crate::error::{Error, ErrorKind};
@@ -28,6 +29,7 @@ pub struct State<'vm, 'env, 'out, 'buf> {
     pub(crate) out: &'out mut Output<'buf>,
     pub(crate) instructions: &'vm Instructions<'env>,
     pub(crate) blocks: BTreeMap<&'env str, Vec<&'vm Instructions<'env>>>,
+    pub(crate) macros: &'env BTreeMap<&'env str, Macro<'env>>,
 }
 
 impl<'vm, 'env, 'out, 'buf> fmt::Debug for State<'vm, 'env, 'out, 'buf> {
@@ -77,6 +79,7 @@ impl<'vm, 'env, 'out, 'buf> State<'vm, 'env, 'out, 'buf> {
             out: &mut Output::null(),
             instructions: &Instructions::new("<unknown>", ""),
             blocks: BTreeMap::default(),
+            macros: &Default::default(),
         })
     }
 

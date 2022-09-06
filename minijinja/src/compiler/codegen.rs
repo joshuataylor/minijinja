@@ -20,12 +20,37 @@ enum PendingBlock {
     ScBool(Vec<usize>),
 }
 
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[derive(Clone)]
+pub struct Macro<'source> {
+    pub instructions: Instructions<'source>,
+    pub args: Vec<(String, ast::Expr<'source>)>,
+}
+
+impl Macro<'_> {
+    fn required_args(&self) -> usize {
+        let mut required_args = 0;
+        for (_, expr) in self.args.iter() {
+            match expr {
+                ast::Expr::Map(k) => {
+                    if k.values.len() == 0 {
+                        required_args += 1;
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        return required_args;
+    }
+}
+
 /// Provides a convenient interface to creating instructions for the VM.
 #[cfg_attr(feature = "internal_debug", derive(Debug))]
 pub struct CodeGenerator<'source> {
     instructions: Instructions<'source>,
     blocks: BTreeMap<&'source str, Instructions<'source>>,
     pending_block: Vec<PendingBlock>,
+    macros: BTreeMap<&'source str, Macro<'source>>,
     current_line: usize,
 }
 
@@ -36,6 +61,7 @@ impl<'source> CodeGenerator<'source> {
             instructions: Instructions::new(file, source),
             blocks: BTreeMap::new(),
             pending_block: Vec::new(),
+            macros: BTreeMap::new(),
             current_line: 0,
         }
     }
@@ -248,6 +274,45 @@ impl<'source> CodeGenerator<'source> {
                 self.compile_expr(&filter_block.filter)?;
                 self.add(Instruction::Emit);
             }
+            ast::Stmt::Macro(mc) => {
+                self.set_location_from_span(mc.span());
+
+                let mut sub_compiler =
+                    CodeGenerator::new(self.instructions.name(), self.instructions.source());
+                sub_compiler.set_line(self.current_line);
+                // for node in &block.body {
+                //     sub_compiler.compile_stmt(node)?;
+                // }
+                for node in &mc.body {
+                    sub_compiler.compile_stmt(node)?;
+                }
+                let (instructions, _blocks, _) = sub_compiler.finish();
+
+                let block = Macro {
+                    instructions: instructions.clone(),
+                    args: mc.args.clone(),
+                };
+                self.macros.insert(mc.name, block);
+                // self.add(Instruction::StoreMacro(mc.name));
+            }
+            ast::Stmt::Do(dob) => {
+                self.set_location_from_span(dob.span());
+                self.add(Instruction::BeginCapture);
+                self.compile_expr(&dob.target)?;
+                self.add(Instruction::EndCapture);
+                self.add(Instruction::Emit);
+            }
+            ast::Stmt::MacroCall(mc) => {
+                // @todo somehow set caller here?
+                self.add(Instruction::BeginCapture);
+                for node in &mc.body {
+                    self.compile_stmt(node)?;
+                }
+                self.add(Instruction::EndCaptureMacro);
+                self.compile_expr(&mc.expr)?;
+
+                self.add(Instruction::Emit);
+            }
         }
         Ok(())
     }
@@ -260,7 +325,7 @@ impl<'source> CodeGenerator<'source> {
         for node in &block.body {
             sub_compiler.compile_stmt(node)?;
         }
-        let (instructions, blocks) = sub_compiler.finish();
+        let (instructions, blocks, _) = sub_compiler.finish();
         self.blocks.extend(blocks.into_iter());
         self.blocks.insert(block.name, instructions);
         self.add(Instruction::CallBlock(block.name));
@@ -454,6 +519,27 @@ impl<'source> CodeGenerator<'source> {
                 }
                 self.add(Instruction::BuildMap(m.keys.len()));
             }
+            ast::Expr::Slice(s) => {
+                self.set_location_from_span(s.span());
+
+                // We need to compile the start and end indexes in the reverse order, as we pop them from the stack.
+                let has_end = if let Some(ref end) = s.end {
+                    self.compile_expr(end)?;
+                    true
+                } else {
+                    false
+                };
+
+                let has_start = if let Some(ref start) = s.start {
+                    self.compile_expr(start)?;
+                    true
+                } else {
+                    false
+                };
+
+                self.compile_expr(&s.expr)?;
+                self.add(Instruction::Slice(has_start, has_end));
+            }
         }
         Ok(())
     }
@@ -462,11 +548,38 @@ impl<'source> CodeGenerator<'source> {
         self.set_location_from_span(c.span());
         match c.identify_call() {
             ast::CallType::Function(name) => {
-                for arg in &c.args {
-                    self.compile_expr(arg)?;
-                }
-                self.add(Instruction::BuildList(c.args.len()));
-                self.add(Instruction::CallFunction(name));
+                let found_macro: Option<Macro<'source>> =
+                    if let Some(macro_def) = self.macros.get(name) {
+                        if c.args.len() >= macro_def.required_args() {
+                            Some(macro_def.clone()) // We have to do a clone here, as otherwise later we can't use compile.
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                match found_macro {
+                    None => {
+                        for arg in &c.args {
+                            self.compile_expr(arg)?;
+                        }
+                        self.add(Instruction::BuildList(c.args.len()));
+                        self.add(Instruction::CallFunction(name));
+                    }
+                    Some(found) => {
+                        for (index, (_key, value)) in found.args.iter().enumerate().rev() {
+                            let matched_expr = match c.args.get(index) {
+                                None => match value {
+                                    ast::Expr::Map(m) => m.values.first().expect("Has item"),
+                                    _ => unreachable!(),
+                                },
+                                Some(a) => a,
+                            };
+                            self.compile_expr(matched_expr)?;
+                        }
+                        self.add(Instruction::CallMacro(name));
+                    }
+                };
             }
             ast::CallType::Block(name) => {
                 self.add(Instruction::BeginCapture);
@@ -528,8 +641,9 @@ impl<'source> CodeGenerator<'source> {
     ) -> (
         Instructions<'source>,
         BTreeMap<&'source str, Instructions<'source>>,
+        BTreeMap<&'source str, Macro<'source>>,
     ) {
         assert!(self.pending_block.is_empty());
-        (self.instructions, self.blocks)
+        (self.instructions, self.blocks, self.macros)
     }
 }

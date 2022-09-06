@@ -13,11 +13,18 @@ pub fn simple_eval<S: serde::Serialize>(
 ) -> Result<String, Error> {
     let env = Environment::new();
     let empty_blocks = BTreeMap::new();
+    let empty_macros = BTreeMap::new();
     let vm = Vm::new(&env);
     let root = Value::from_serializable(&ctx);
     let mut rv = String::new();
     let mut output = make_string_output(&mut rv, AutoEscape::None);
-    vm.eval(instructions, root, &empty_blocks, &mut output)?;
+    vm.eval(
+        instructions,
+        root,
+        &empty_blocks,
+        &empty_macros,
+        &mut output,
+    )?;
     Ok(rv)
 }
 
