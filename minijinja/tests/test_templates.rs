@@ -6,6 +6,32 @@ use minijinja::{context, Environment, Error, State};
 use similar_asserts::assert_eq;
 
 #[test]
+fn test_macros() {
+    let mut env = Environment::new();
+    env.set_debug(true);
+        env.add_macro("foo", "hello", r#"{% macro greet(first) %}
+        hello {{first}}
+        {{ caller() }}
+    {% endmacro %}"#);
+    // env.add_macro("", "", "{% macro foo(x,b=1) %}Passed to foo was {{x}}, with b being {{b}}{% endmacro %}");
+    env.add_template("slice", "{{ foo.greet('one') }}")
+        .unwrap();
+
+    // env.add_template("slice", "{% macro foo(x) %}xxxx{% endmacro %}{{ foo('x') }}").unwrap();
+    // env.add_template("slice", "{% macro foo(x,b=1) %}xxxx {{b}}{% endmacro %}{{ foo('x') }}").unwrap();
+
+    // env.add_template("slice", "{% set foo = 'abcdefghijklmnopqrstuvwxyz' %}{{ foo[3:5] }}").unwrap();
+    let template = env.get_template("slice").unwrap();
+    dbg!(&template);
+
+    let mut rendered = match template.render(context!()) {
+        Ok(rendered) => rendered,
+        Err(err) => format!("!!!ERROR!!!\n\n{:?}\n", err),
+    };
+    println!("{}", rendered);
+}
+
+#[test]
 fn test_vm() {
     let mut refs = Vec::new();
     for entry in fs::read_dir("tests/inputs/refs").unwrap() {

@@ -60,6 +60,8 @@ pub enum Stmt<'a> {
     Set(Spanned<Set<'a>>),
     SetBlock(Spanned<SetBlock<'a>>),
     Block(Spanned<Block<'a>>),
+    Materialization(Spanned<Materialization<'a>>),
+    DbtTest(Spanned<DbtTest<'a>>),
     Extends(Spanned<Extends<'a>>),
     Include(Spanned<Include<'a>>),
     AutoEscape(Spanned<AutoEscape<'a>>),
@@ -89,6 +91,8 @@ impl<'a> fmt::Debug for Stmt<'a> {
             Stmt::Macro(s) => fmt::Debug::fmt(s, f),
             Stmt::Do(s) => fmt::Debug::fmt(s, f),
             Stmt::MacroCall(s) => fmt::Debug::fmt(s, f),
+            Stmt::Materialization(s) => fmt::Debug::fmt(s, f),
+            Stmt::DbtTest(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
@@ -213,6 +217,16 @@ pub struct SetBlock<'a> {
 pub struct Block<'a> {
     pub name: &'a str,
     pub body: Vec<Stmt<'a>>,
+}
+
+#[derive(Debug)]
+pub struct Materialization<'a> {
+    pub name: &'a str,
+}
+
+#[derive(Debug)]
+pub struct DbtTest<'a> {
+    pub name: &'a str,
 }
 
 /// An extends block.

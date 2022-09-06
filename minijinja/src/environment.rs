@@ -403,10 +403,12 @@ impl<'source> Environment<'source> {
 
     pub fn add_macro(&mut self, prefix: &'source str, name: &'source str, contents: &'source str) {
         let ast = parse(contents, name).unwrap();
+        println!("{:#?}", ast);
 
         // let ast = parse_expr(expr)?;
         let mut compiler = CodeGenerator::new(name, contents);
         compiler.compile_stmt(&ast).unwrap();
+        println!("instructions: {:?}", compiler);
 
         let (_, _, macros) = compiler.finish();
         for (macro_name, found_macro) in macros {
@@ -427,6 +429,7 @@ impl<'source> Environment<'source> {
                             let expression_result = Ok(Expression::new(self, instructions2));
                             let expression_output =
                                 attach_basic_debug_info(expression_result, "macro").unwrap();
+                            println!("expression_output: {:?}", expression_output);
                             Some(expression_output.eval(&()).expect("Expression"))
                         } else {
                             None

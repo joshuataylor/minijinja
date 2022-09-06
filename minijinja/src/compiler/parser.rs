@@ -657,6 +657,14 @@ impl<'a> Parser<'a> {
                     ast::Stmt::SetBlock(Spanned::new(rv, self.stream.expand_span(span)))
                 }
             }),
+            Token::Ident("materialization") => Ok(ast::Stmt::Materialization(Spanned::new(
+                self.parse_materialization()?,
+                self.stream.expand_span(span),
+            ))),
+            Token::Ident("test") => Ok(ast::Stmt::DbtTest(Spanned::new(
+                self.parse_dbt_test()?,
+                self.stream.expand_span(span),
+            ))),
             Token::Ident("block") => Ok(ast::Stmt::Block(Spanned::new(
                 self.parse_block()?,
                 self.stream.expand_span(span),
@@ -988,6 +996,46 @@ impl<'a> Parser<'a> {
             let expr = self.parse_expr()?;
             Ok(SetParseResult::Set(ast::Set { target, expr }))
         }
+    }
+
+    fn parse_materialization(&mut self) -> Result<ast::Materialization<'a>, Error> {
+        let max = 100000;
+        let mut current = 1;
+
+        while !matches!(self.stream.current()?, Some((Token::Ident("endmaterialization"), _))) {
+            self.stream.next();
+            if current >= max {
+                break;
+            }
+            current += 1;
+            println!("current: {:#?}", self.stream.current());
+        }
+        println!("current out: {:#?}", self.stream.current());
+        self.stream.next();
+        println!("current out: {:#?}", self.stream.current());
+
+
+        Ok(ast::Materialization { name: "x" })
+    }
+
+    fn parse_dbt_test(&mut self) -> Result<ast::DbtTest<'a>, Error> {
+        let max = 100000;
+        let mut current = 1;
+
+        while !matches!(self.stream.current()?, Some((Token::Ident("endtest"), _))) {
+            self.stream.next();
+            if current >= max {
+                break;
+            }
+            current += 1;
+            println!("current: {:#?}", self.stream.current());
+        }
+        println!("current out: {:#?}", self.stream.current());
+        self.stream.next();
+        println!("current out: {:#?}", self.stream.current());
+
+
+        Ok(ast::DbtTest { name: "x" })
     }
 
     fn parse_block(&mut self) -> Result<ast::Block<'a>, Error> {

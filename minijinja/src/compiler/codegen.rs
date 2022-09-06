@@ -10,6 +10,7 @@ use crate::value::Value;
 
 #[cfg(test)]
 use similar_asserts::assert_eq;
+use crate::compiler::ast::Stmt;
 
 /// Represents an open block of code that does not yet have updated
 /// jump targets.
@@ -313,6 +314,10 @@ impl<'source> CodeGenerator<'source> {
 
                 self.add(Instruction::Emit);
             }
+            ast::Stmt::Materialization(x) => {
+
+            }
+            ast::Stmt::DbtTest(_) => {}
         }
         Ok(())
     }

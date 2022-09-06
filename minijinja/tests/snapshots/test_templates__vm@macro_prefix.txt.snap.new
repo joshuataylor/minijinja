@@ -1,0 +1,17 @@
+---
+source: minijinja/tests/test_templates.rs
+assertion_line: 82
+description: "{{foo.greet('one')}}"
+info: {}
+input_file: minijinja/tests/inputs/macro_prefix.txt
+---
+!!!ERROR!!!
+
+Error {
+    kind: ImpossibleOperation,
+    detail: "object has no method named greet",
+    name: "macro_prefix.txt",
+    line: 1,
+}
+
+
