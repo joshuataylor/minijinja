@@ -302,8 +302,6 @@ impl<'a> Parser<'a> {
                         // This code is am absolute mess, because the code changed and I haven't had time to update it yet.
                         let expr2 = self.parse_expr()?;
 
-                        // let i64_value = i64_unary!(expr2);
-
                         self.stream.next()?;
 
                         expr = ast::Expr::Slice(Spanned::new(
