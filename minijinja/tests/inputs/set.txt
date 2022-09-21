@@ -45,3 +45,10 @@ Filter block
 Set with +
 {% set set_plus = "hello" + "world" %}
 {{ set_plus }}
+
+Multi line set without scapes
+{%- set multiline_message = '
+I am \
+Multi \
+Line \' -%}
+{{ error_message }}

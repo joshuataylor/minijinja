@@ -401,14 +401,12 @@ impl<'source> Environment<'source> {
         self.tests.remove(name);
     }
 
-    pub fn add_macro(&mut self, prefix: &'source str, name: &'source str, contents: &'source str) {
+    pub fn add_macro(&mut self, prefix: &'source str, name: &'source str, contents: &'source str) -> Vec<&str> {
         let ast = parse(contents, name).unwrap();
-        println!("{:#?}", ast);
-
         // let ast = parse_expr(expr)?;
         let mut compiler = CodeGenerator::new(name, contents);
         compiler.compile_stmt(&ast).unwrap();
-        println!("instructions: {:?}", compiler);
+        let mut added_macros = vec![];
 
         let (_, _, macros) = compiler.finish();
         for (macro_name, found_macro) in macros {
@@ -429,7 +427,6 @@ impl<'source> Environment<'source> {
                             let expression_result = Ok(Expression::new(self, instructions2));
                             let expression_output =
                                 attach_basic_debug_info(expression_result, "macro").unwrap();
-                            println!("expression_output: {:?}", expression_output);
                             Some(expression_output.eval(&()).expect("Expression"))
                         } else {
                             None
@@ -437,13 +434,12 @@ impl<'source> Environment<'source> {
                     }
                     _ => unreachable!(),
                 };
-                // println!("matched_expr: {:?}", matched_expr);
                 macro_args.push(matched_expr);
             }
-            // println!("macro_name {} macro_args: {:?}", macro_name, macro_args);
-
             self.macros.insert(macro_name, (found_macro, macro_args));
+            added_macros.push(macro_name);
         }
+        return added_macros;
     }
 
     /// Adds a new global function.
