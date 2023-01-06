@@ -662,6 +662,8 @@ impl<'a> Parser<'a> {
             Token::Ident("from") => ast::Stmt::FromImport(respan!(ok!(self.parse_from_import()))),
             #[cfg(feature = "macros")]
             Token::Ident("macro") => ast::Stmt::Macro(respan!(ok!(self.parse_macro()))),
+            #[cfg(feature = "macros")]
+            Token::Ident("call") => ast::Stmt::MacroCallBlock(respan!(ok!(self.parse_call_macro_block()))),
             Token::Ident(name) => syntax_error!("unknown statement {}", name),
             token => syntax_error!("unknown {}, expected statement", token),
         })
@@ -985,6 +987,19 @@ impl<'a> Parser<'a> {
             defaults,
             body,
         })
+    }
+
+    #[cfg(feature = "macros")]
+    fn parse_call_macro_block(&mut self) -> Result<ast::CallMacroBlock<'a>, Error> {
+        let (name, _) = expect_token!(self, Token::Ident(name) => name, "identifier");
+
+        let expr = self.parse_expr()?;
+
+        expect_token!(self, Token::BlockEnd(..), "end of block");
+        let body = self.subparse(&|tok| matches!(tok, Token::Ident("endcall")))?;
+        self.stream.next()?;
+
+        Ok(ast::CallMacroBlock { name, body, expr })
     }
 
     fn subparse(

@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::BTreeMap;
 
 use crate::compiler::ast;
@@ -10,6 +11,7 @@ use crate::value::Value;
 
 #[cfg(test)]
 use similar_asserts::assert_eq;
+use crate::compiler::ast::Expr;
 
 /// For the first `MAX_LOCALS` filters/tests, an ID is returned for faster lookups from the stack.
 fn get_local_id<'source>(ids: &mut BTreeMap<&'source str, LocalId>, name: &'source str) -> LocalId {
@@ -343,6 +345,35 @@ impl<'source> CodeGenerator<'source> {
             #[cfg(feature = "macros")]
             ast::Stmt::Macro(macro_decl) => {
                 self.compile_macro(macro_decl);
+            }
+            #[cfg(feature = "macros")]
+            ast::Stmt::MacroCallBlock(macro_call) => {
+                self.set_line_from_span(macro_call.span());
+                let arg_size = match &macro_call.expr {
+                    Expr::Const(c) => 1,
+                    Expr::List(x) => x.items.len(),
+                    _ => 0
+                };
+
+                let mut sub = self.new_subgenerator();
+
+                self.compile_expr(&macro_call.expr);
+                // sub.add(Instruction::Emit);
+
+                for node in &macro_call.body {
+                    sub.compile_stmt(node);
+                }
+
+                let instructions = self.finish_subgenerator(sub);
+                // set name for block
+                // let block_name = format!("macro_{}_{}_{}", macro_call.name.clone(), arg_size);
+                // let block_name = format!("macro_{}_{}_{}", macro_call.name.clone(), arg_size.clone(), self.current_line.clone()).clone().as_str();
+
+                self.blocks.insert(macro_call.name.clone(), instructions);
+
+                self.add(Instruction::CallMacroBlock(macro_call.name.clone(), arg_size));
+                self.add(Instruction::EndCallMacroBlock(macro_call.name.clone(), arg_size));
+                self.add(Instruction::Emit);
             }
         }
     }

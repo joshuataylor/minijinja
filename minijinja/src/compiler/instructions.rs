@@ -220,6 +220,14 @@ pub enum Instruction<'source> {
     /// True if the value is undefined
     #[cfg(feature = "macros")]
     IsUndefined,
+
+    /// Calls a macro that is in scope
+    #[cfg(feature = "macros")]
+    CallMacroBlock(&'source str, usize), // name / usize
+
+    /// Calls a macro that is in scope
+    #[cfg(feature = "macros")]
+    EndCallMacroBlock(&'source str, usize), // name / usize
 }
 
 #[derive(Copy, Clone)]
@@ -381,6 +389,7 @@ impl<'source> Instructions<'source> {
             let name = match instr {
                 Instruction::Lookup(name)
                 | Instruction::StoreLocal(name)
+                | Instruction::CallMacroBlock(name, _)
                 | Instruction::CallFunction(name, _) => *name,
                 Instruction::PushLoop(flags) if flags & LOOP_FLAG_WITH_LOOP_VAR != 0 => "loop",
                 Instruction::PushLoop(_) | Instruction::PushWith => break,

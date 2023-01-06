@@ -24,6 +24,7 @@ pub struct State<'vm, 'env> {
     pub(crate) env: &'env Environment<'env>,
     pub(crate) ctx: Context<'env>,
     pub(crate) current_block: Option<&'env str>,
+    pub(crate) current_macro_block: Option<&'vm Instructions<'env>>,
     pub(crate) current_call: Option<&'env str>,
     pub(crate) auto_escape: AutoEscape,
     pub(crate) instructions: &'vm Instructions<'env>,
@@ -91,6 +92,7 @@ impl<'vm, 'env> State<'vm, 'env> {
             loaded_templates: BTreeSet::new(),
             macros: Default::default(),
             current_call: None,
+            current_macro_block: None,
         })
     }
 

@@ -73,6 +73,8 @@ pub enum Stmt<'a> {
     Include(Spanned<Include<'a>>),
     #[cfg(feature = "macros")]
     Macro(Spanned<Macro<'a>>),
+    #[cfg(feature = "macros")]
+    MacroCallBlock(Spanned<CallMacroBlock<'a>>),
 }
 
 #[cfg(feature = "internal_debug")]
@@ -101,6 +103,8 @@ impl<'a> fmt::Debug for Stmt<'a> {
             Stmt::FromImport(s) => fmt::Debug::fmt(s, f),
             #[cfg(feature = "macros")]
             Stmt::Macro(s) => fmt::Debug::fmt(s, f),
+            #[cfg(feature = "macros")]
+            Stmt::MacroCallBlock(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
@@ -376,6 +380,13 @@ pub struct GetItem<'a> {
 pub struct Call<'a> {
     pub expr: Expr<'a>,
     pub args: Vec<Expr<'a>>,
+}
+
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+pub struct CallMacroBlock<'a> {
+    pub name: &'a str, // name of the macro being called?
+    pub expr: Expr<'a>,
+    pub body: Vec<Stmt<'a>>,
 }
 
 /// Creates a list of values.

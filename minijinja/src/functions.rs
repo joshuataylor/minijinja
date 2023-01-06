@@ -227,6 +227,8 @@ mod builtins {
     use std::collections::BTreeMap;
 
     use crate::error::ErrorKind;
+    use crate::Output;
+    use crate::output::CaptureMode;
     use crate::value::ValueKind;
 
     /// Returns a range.
@@ -298,6 +300,22 @@ mod builtins {
     #[cfg_attr(docsrs, doc(cfg(feature = "builtins")))]
     pub fn debug(state: &State) -> String {
         format!("{:#?}", state)
+    }
+
+    /// Outputs the called in text
+    pub fn caller(state: &State) -> String {
+        let mut rv = String::new();
+        let mut out2 = Output::with_string(&mut rv);
+
+        out2.begin_capture(CaptureMode::Capture);
+        // self.eval_state(state, &mut out2);
+        // let expr = state.env.compile_expression(state.)
+        let foo = state.current_macro_block.unwrap();
+
+        // every time we call a function, it needs to re-call the caller.
+        // the caller is NOT static.
+        // let foo = state.env.com(state.current_macro_block);
+        format!("fff {:#?}", state.current_macro_block)
     }
 }
 

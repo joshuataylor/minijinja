@@ -83,6 +83,7 @@ impl<'env> Vm<'env> {
                     env: self.env,
                     ctx: Context::new(Frame::new(root)),
                     current_block: None,
+                    current_macro_block: None,
                     current_call: None,
                     auto_escape,
                     instructions,
@@ -108,6 +109,7 @@ impl<'env> Vm<'env> {
         state: &State,
         args: Vec<Value>,
     ) -> Result<Option<Value>, Error> {
+        println!("eval_macro");
         value::with_value_optimization(|| {
             let mut ctx = Context::new(Frame::new(root));
             ok!(ctx.incr_depth(state.ctx.depth()));
@@ -116,6 +118,7 @@ impl<'env> Vm<'env> {
                     env: self.env,
                     ctx,
                     current_block: None,
+                    current_macro_block: state.current_macro_block,
                     current_call: None,
                     auto_escape: state.auto_escape(),
                     instructions,
@@ -460,6 +463,10 @@ impl<'env> Vm<'env> {
                     state.current_call = None;
                 }
                 Instruction::CallFunction(name, arg_count) => {
+                    // println!("2call function {}", name);
+                    // println!("2current_block {:#?}", state.current_block);
+                    // println!("2current_macro {:#?}", state.current_macro);
+                    // println!("2current_call {:#?}", state.current_call);
                     state.current_call = Some(name);
 
                     // super is a special function reserved for super-ing into blocks.
@@ -481,7 +488,17 @@ impl<'env> Vm<'env> {
                         }
                         // leave the one argument on the stack for the recursion
                         recurse_loop!(true);
-                    } else if let Some(func) = state.ctx.load(self.env, name) {
+                    }
+                    // else if *name == "caller" {
+                    //     if let Some(func) = state.ctx.load(self.env, name) {
+                    //         println!("hello caller...");
+                    //         let args = stack.slice_top(*arg_count);
+                    //         a = ctx_ok!(func.call(state, args));
+                    //         stack.drop_top(*arg_count);
+                    //         stack.push(a);
+                    //     }
+                    // }
+                    else if let Some(func) = state.ctx.load(self.env, name) {
                         let args = stack.slice_top(*arg_count);
                         a = ctx_ok!(func.call(state, args));
                         stack.drop_top(*arg_count);
@@ -590,6 +607,71 @@ impl<'env> Vm<'env> {
                 }
                 #[cfg(feature = "macros")]
                 Instruction::Return => break,
+
+                #[cfg(feature = "macros")]
+                Instruction::CallMacroBlock(name, arg_count) => {
+                    println!("{}", parent_instructions.is_none());
+
+                    println!("call macro block");
+                    if let Some(block_stack) = state.blocks.get(name) {
+                        if let Some(func) = state.ctx.load(self.env, name) {
+                            state.current_call = Some(name);
+                            state.current_block = Some(name);
+                            // let mut rv = String::new();
+                            // let mut out2 = Output::with_string(&mut rv);
+
+                            // out2.begin_capture(CaptureMode::Capture);
+                            // let old_instructions = mem::replace(&mut state.instructions, block_stack.instructions());
+                            // self.eval_state(state, &mut out2);
+                            // let current_macro = out2.end_capture(state.auto_escape);
+
+                            // state.instructions = old_instructions;
+
+                            state.current_macro_block = Some(block_stack.instructions());
+
+                            let args = stack.slice_top(*arg_count);
+                            a = ctx_ok!(func.call(state, args));
+                            // evaluate the block contents to caller()..
+
+                            stack.drop_top(*arg_count);
+                            stack.push(a);
+
+                        }
+
+                    }
+
+                    // Call this block as normal..
+
+
+                    // We can now render the block.
+
+                    // Define the "caller()" function
+                    // let mut sub_context = Context::default();
+                    // sub_context.push_frame(Frame::new(FrameBase::Context(&state.ctx)));
+
+                    // let mut rv = String::new();
+                    // let mut out = Output::with_string(&mut rv);
+
+                    // let mut sub_state = State {
+                    //         env: self.env,
+                    //         ctx: sub_context,
+                    //         current_block: Some(name),
+                    //         // out: &mut output,
+                    //         instructions: &found_macro.instructions,
+                    //         blocks: state.blocks.clone(),
+                    //         macros: &state.macros,
+                    //     };
+                    // for (arg_name, _) in &found_macro.args {
+                    //         sub_state.ctx.store(&arg_name, stack.pop());
+                    //     }
+                    //
+                    // self.eval_state(&mut sub_state)?;
+                    //
+                    // stack.push(Value::from(output_string));
+                }
+                Instruction::EndCallMacroBlock(_, _) => {
+                    // state.current_macro = None;
+                }
             }
             pc += 1;
         }
@@ -706,6 +788,41 @@ impl<'env> Vm<'env> {
         } else {
             Ok(Value::UNDEFINED)
         }
+    }
+
+    fn set_macro_caller(
+        &self,
+        macro_name: &str,
+        state: &mut State<'_, 'env>,
+        out: &mut Output
+    ) -> Result<Value, Error> {
+        let block_stack = state.blocks.get_mut(macro_name).unwrap();
+        if !block_stack.push() {
+            return Err(Error::new(
+                ErrorKind::InvalidOperation,
+                "no parent block exists",
+            ));
+        }
+
+        // if capture {
+        //     out.begin_capture(CaptureMode::Capture);
+        // }
+        //
+        // let old_instructions = mem::replace(&mut state.instructions, block_stack.instructions());
+        // ok!(state.ctx.push_frame(Frame::default()));
+        // let rv = self.eval_state(state, out);
+        // state.ctx.pop_frame();
+        // state.instructions = old_instructions;
+        // state.blocks.get_mut(name).unwrap().pop();
+        //
+        // ok!(rv.map_err(|err| {
+        //     Error::new(ErrorKind::EvalBlock, "error in super block").with_source(err)
+        // }));
+        // if capture {
+        //     Ok(out.end_capture(state.auto_escape))
+        // } else {
+            Ok(Value::UNDEFINED)
+        // }
     }
 
     fn prepare_loop_recursion(&self, state: &mut State) -> Result<usize, Error> {

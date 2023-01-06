@@ -15,6 +15,8 @@ use crate::utils::{AutoEscape, BTreeMapKeysDebug};
 use crate::value::{FunctionArgs, FunctionResult, Value};
 use crate::vm::{State, Vm};
 use crate::{defaults, filters, functions, tests};
+use crate::compiler::ast;
+use crate::machinery::parse;
 
 type TemplateMap<'source> = BTreeMap<&'source str, Arc<CompiledTemplate<'source>>>;
 
@@ -428,6 +430,44 @@ impl<'source> Environment<'source> {
     /// Removes a test by name.
     pub fn remove_test(&mut self, name: &str) {
         self.tests.remove(name);
+    }
+
+    /// Adds a new global function.
+    pub fn add_macro(
+        &mut self,
+        prefix: &'source str,
+        name: &'source str,
+        contents: &'source str,
+        state: &State
+    ) -> Vec<&str> {
+        /// can we add the macro somehow?
+        self.compile_expression(contents).unwrap();
+
+        return vec![];
+
+        // let arg_spec = match stack.pop().0 {
+        //     ValueRepr::Seq(args) => args
+        //         .iter()
+        //         .map(|value| match &value.0 {
+        //             ValueRepr::String(arg, _) => arg.clone(),
+        //             _ => unreachable!(),
+        //         })
+        //         .collect(),
+        //     _ => unreachable!(),
+        // };
+        // let closure = stack.pop();
+        // let macro_ref_id = state.macros.len();
+        // Arc::make_mut(&mut state.macros).push((state.instructions, offset));
+        // stack.push(Value::from_object(Macro {
+        //     data: Arc::new(MacroData {
+        //         name: Arc::new(name.to_string()),
+        //         arg_spec,
+        //         macro_ref_id,
+        //         closure,
+        //         self_reference,
+        //     }),
+        // }));
+
     }
 
     /// Adds a new global function.
