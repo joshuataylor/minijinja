@@ -667,7 +667,7 @@ impl<'a> Parser<'a> {
             Token::Ident("do") => ast::Stmt::Do(respan!(ok!(self.parse_do()))),
             #[cfg(feature = "kiln")]
             Token::Ident("test") => ast::Stmt::Macro(respan!(ok!(self.parse_macro()))),
-            // Token::Ident("test") => ast::Stmt::DbtTest(respan!(ok!(self.parse_dbt_test()))),
+            Token::Ident("docs") => ast::Stmt::Macro(respan!(ok!(self.parse_macro()))),
             Token::Ident(name) => syntax_error!("unknown statement {}", name),
             token => syntax_error!("unknown {}, expected statement", token),
         })
