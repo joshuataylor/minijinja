@@ -82,6 +82,12 @@ pub enum Stmt<'a> {
     #[cfg(feature = "macros")]
     CallBlock(Spanned<CallBlock<'a>>),
     Do(Spanned<Do<'a>>),
+
+    // kiln specific overrides
+    #[cfg(feature = "kiln")]
+    Materialization(Spanned<Materialization<'a>>),
+    #[cfg(feature = "kiln")]
+    DbtTest(Spanned<DbtTest<'a>>),
 }
 
 #[cfg(feature = "internal_debug")]
@@ -113,6 +119,11 @@ impl<'a> fmt::Debug for Stmt<'a> {
             #[cfg(feature = "macros")]
             Stmt::CallBlock(s) => fmt::Debug::fmt(s, f),
             Stmt::Do(s) => fmt::Debug::fmt(s, f),
+
+            #[cfg(feature = "kiln")]
+            Stmt::Materialization(s) => fmt::Debug::fmt(s, f),
+            #[cfg(feature = "kiln")]
+            Stmt::DbtTest(s) => fmt::Debug::fmt(s, f),
         }
     }
 }
@@ -539,6 +550,20 @@ impl<'a> Map<'a> {
 
         Some(Value(ValueRepr::Map(rv.into(), MapType::Normal)))
     }
+}
+
+#[cfg(feature = "kiln")]
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[cfg_attr(feature = "unstable_machinery_serde", derive(serde::Serialize))]
+pub struct Materialization<'a> {
+    pub name: &'a str,
+}
+
+#[cfg(feature = "kiln")]
+#[cfg_attr(feature = "internal_debug", derive(Debug))]
+#[cfg_attr(feature = "unstable_machinery_serde", derive(serde::Serialize))]
+pub struct DbtTest<'a> {
+    pub name: &'a str,
 }
 
 /// Defines the specific type of call.

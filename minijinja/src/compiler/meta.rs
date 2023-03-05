@@ -173,6 +173,10 @@ pub fn find_macro_closure<'a>(m: &ast::Macro<'a>) -> HashSet<&'a str> {
             #[cfg(feature = "macros")]
             ast::Stmt::CallBlock(_) => {}
             ast::Stmt::Do(_) => {}
+            #[cfg(feature = "kiln")]
+            ast::Stmt::Materialization(_) => {}
+            #[cfg(feature = "kiln")]
+            ast::Stmt::DbtTest(_) => {}
         }
     }
 

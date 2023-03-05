@@ -360,6 +360,10 @@ impl<'source> CodeGenerator<'source> {
             ast::Stmt::Do(do_tag) => {
                 self.compile_do(do_tag);
             }
+            #[cfg(feature = "kiln")]
+            ast::Stmt::Materialization(_) => {}
+            #[cfg(feature = "kiln")]
+            ast::Stmt::DbtTest(_) => {}
         }
     }
 

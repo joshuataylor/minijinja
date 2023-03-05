@@ -46,6 +46,9 @@ internal_debug = []
 unstable_machinery = ["internal_debug"]
 unstable_machinery_serde = ["unstable_machinery", "serde/derive"]
 
+# kiln specific
+kiln = ["unstable_machinery_serde", "json", "urlencode", "multi-template", "internal_debug"]
+
 [dependencies]
 serde = "1.0.130"
 v_htmlescape = { version = "0.15.8", optional = true }

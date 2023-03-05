@@ -1,0 +1,27 @@
+---
+source: minijinja/tests/test_templates.rs
+assertion_line: 137
+description: "{% test test_max_scale(model, column_name, max_scale) %}\n  with validation as (\n    select {{ column_name }} as test_field\n    from {{ model }}\n    where {{ column_name }} is not null\n    and contains({{ column_name }}, '.')\n  ),\n\n  validation_errors as (\n    with tested as (\n      select max(split(test_field, '.')[1]::int) as split_field\n      from validation\n    )\n    select split_field from tested\n    where length(split_field) > {{max_scale}}\n  )\n\n  select * from validation_errors\n{% endtest %}"
+info: {}
+input_file: minijinja/tests/inputs/kiln_test.txt
+---
+!!!SYNTAX ERROR!!!
+
+Error {
+    kind: SyntaxError,
+    detail: "unknown statement test",
+    name: "kiln_test.txt",
+    line: 1,
+}
+
+syntax error: unknown statement test (in kiln_test.txt:1)
+-------------------------------- kiln_test.txt --------------------------------
+   1 > {% test test_max_scale(model, column_name, max_scale) %}
+     i    ^^^^ syntax error
+   2 |   with validation as (
+   3 |     select {{ column_name }} as test_field
+   4 |     from {{ model }}
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+No referenced variables
+-------------------------------------------------------------------------------
+

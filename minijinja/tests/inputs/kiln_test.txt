@@ -1,0 +1,22 @@
+{
+}
+---
+{% test test_max_scale(model, column_name, max_scale) %}
+  with validation as (
+    select {{ column_name }} as test_field
+    from {{ model }}
+    where {{ column_name }} is not null
+    and contains({{ column_name }}, '.')
+  ),
+
+  validation_errors as (
+    with tested as (
+      select max(split(test_field, '.')[1]::int) as split_field
+      from validation
+    )
+    select split_field from tested
+    where length(split_field) > {{max_scale}}
+  )
+
+  select * from validation_errors
+{% endtest %}

@@ -8,6 +8,72 @@ use minijinja::{context, Environment, Error, State};
 use similar_asserts::assert_eq;
 
 #[test]
+fn test_kiln() {
+    let mut refs = Vec::new();
+    insta::glob!("inputs/refs/*", |entry| {
+        let filename = entry.file_name().unwrap();
+        let filename = filename.to_str().unwrap();
+        if filename.ends_with(".txt") || filename.ends_with(".html") {
+            let source = fs::read_to_string(entry).unwrap();
+            refs.push((entry.to_path_buf(), source));
+        }
+    });
+
+    insta::glob!("inputs/kiln_test.txt", |path| {
+        if !path.metadata().unwrap().is_file() {
+            return;
+        }
+        let filename = path.file_name().unwrap().to_str().unwrap();
+        let contents = std::fs::read_to_string(path).unwrap();
+        let mut iter = contents.splitn(2, "\n---\n");
+        let mut env = Environment::new();
+        let ctx: serde_json::Value = serde_json::from_str(iter.next().unwrap()).unwrap();
+
+        for (path, source) in &refs {
+            let ref_filename = path.file_name().unwrap().to_str().unwrap();
+            env.add_template(ref_filename, source).unwrap();
+        }
+
+        let content = iter.next().unwrap();
+        let rendered = if let Err(err) = env.add_template(filename, content) {
+            let mut rendered = format!("!!!SYNTAX ERROR!!!\n\n{err:#?}\n\n");
+            writeln!(rendered, "{err:#}").unwrap();
+            rendered
+        } else {
+            let template = env.get_template(filename).unwrap();
+
+            match template.render(&ctx) {
+                Ok(mut rendered) => {
+                    rendered.push('\n');
+                    rendered
+                }
+                Err(err) => {
+                    let mut rendered = format!("!!!ERROR!!!\n\n{err:#?}\n\n");
+
+                    writeln!(rendered, "{err:#}").unwrap();
+                    let mut err = &err as &dyn std::error::Error;
+                    while let Some(next_err) = err.source() {
+                        writeln!(rendered).unwrap();
+                        writeln!(rendered, "caused by: {next_err:#}").unwrap();
+                        err = next_err;
+                    }
+
+                    rendered
+                }
+            }
+        };
+
+        insta::with_settings!({
+            info => &ctx,
+            description => content.trim_end(),
+            omit_expression => true
+        }, {
+            insta::assert_snapshot!(&rendered);
+        });
+    });
+}
+
+#[test]
 fn test_vm() {
     let mut refs = Vec::new();
     insta::glob!("inputs/refs/*", |entry| {

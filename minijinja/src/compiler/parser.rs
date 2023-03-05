@@ -665,6 +665,9 @@ impl<'a> Parser<'a> {
             #[cfg(feature = "macros")]
             Token::Ident("call") => ast::Stmt::CallBlock(respan!(ok!(self.parse_call_block()))),
             Token::Ident("do") => ast::Stmt::Do(respan!(ok!(self.parse_do()))),
+            #[cfg(feature = "kiln")]
+            Token::Ident("test") => ast::Stmt::Macro(respan!(ok!(self.parse_macro()))),
+            // Token::Ident("test") => ast::Stmt::DbtTest(respan!(ok!(self.parse_dbt_test()))),
             Token::Ident(name) => syntax_error!("unknown statement {}", name),
             token => syntax_error!("unknown {}, expected statement", token),
         })
@@ -988,6 +991,7 @@ impl<'a> Parser<'a> {
         let old_in_macro = std::mem::replace(&mut self.in_macro, true);
         let body = ok!(self.subparse(&|tok| match tok {
             Token::Ident("endmacro") if name.is_some() => true,
+            Token::Ident("endtest") if name.is_some() => true,
             Token::Ident("endcall") if name.is_none() => true,
             _ => false,
         }));
@@ -1042,6 +1046,27 @@ impl<'a> Parser<'a> {
             ),
         };
         Ok(ast::Do { call })
+    }
+
+    #[cfg(feature = "kiln")]
+    fn parse_dbt_test(&mut self) -> Result<ast::DbtTest<'a>, Error> {
+        let max = 100000;
+        let mut current = 1;
+
+        while !matches!(self.stream.current()?, Some((Token::Ident("endtest"), _))) {
+            self.stream.next();
+            if current >= max {
+                break;
+            }
+            current += 1;
+            println!("current: {:#?}", self.stream.current());
+        }
+        println!("current out: {:#?}", self.stream.current());
+        self.stream.next();
+        println!("current out: {:#?}", self.stream.current());
+
+
+        Ok(ast::DbtTest { name: "x" })
     }
 
     fn subparse(
