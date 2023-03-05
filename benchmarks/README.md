@@ -17,16 +17,16 @@ $ cargo bench
 These are the results run on a MacBook Pro 16" 2021:
 
 ```
-cmp_compile/handlebars  time:   [47.679 µs 47.807 µs 47.994 µs]
-cmp_compile/liquid      time:   [77.487 µs 77.618 µs 77.778 µs]
-cmp_compile/minijinja   time:   [4.3142 µs 4.3264 µs 4.3398 µs]
-cmp_compile/tera        time:   [86.599 µs 86.754 µs 86.942 µs]
+cmp_compile/handlebars  time:   [46.856 µs 46.895 µs 46.943 µs]
+cmp_compile/liquid      time:   [76.993 µs 77.069 µs 77.166 µs]
+cmp_compile/minijinja   time:   [4.2695 µs 4.2790 µs 4.2881 µs]
+cmp_compile/tera        time:   [85.535 µs 85.602 µs 85.685 µs]
 
-cmp_render/askama       time:   [1.7090 µs 1.7109 µs 1.7130 µs]
-cmp_render/handlebars   time:   [6.2485 µs 6.2621 µs 6.2787 µs]
-cmp_render/liquid       time:   [12.089 µs 12.120 µs 12.163 µs]
-cmp_render/minijinja    time:   [5.0464 µs 5.0580 µs 5.0718 µs]
-cmp_render/tera         time:   [8.1701 µs 8.1905 µs 8.2214 µs]
+cmp_render/askama       time:   [1.6896 µs 1.6933 µs 1.6971 µs]
+cmp_render/handlebars   time:   [6.2611 µs 6.2645 µs 6.2683 µs]
+cmp_render/liquid       time:   [12.013 µs 12.030 µs 12.048 µs]
+cmp_render/minijinja    time:   [4.9891 µs 4.9972 µs 5.0069 µs]
+cmp_render/tera         time:   [8.1737 µs 8.1826 µs 8.1925 µs]
 ```
 
 Note that Askama compiles templates as part of the Rust build

@@ -1,6 +1,6 @@
 [package]
 name = "minijinja"
-version = "0.30.4"
+version = "0.30.5"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
@@ -17,7 +17,7 @@ features = ["source", "json", "urlencode"]
 rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "doc-header.html"]
 
 [features]
-default = ["builtins", "debug", "key_interning", "deserialization", "macros", "multi-template", "adjacent-loop-items"]
+default = ["builtins", "debug", "deserialization", "macros", "multi_template", "adjacent_loop_items"]
 
 # API features
 preserve_order = ["indexmap"]
@@ -28,13 +28,13 @@ unicode = ["unicode-ident"]
 
 # Speedups
 key_interning = []
-speedups = ["v_htmlescape", "key_interning"]
+speedups = ["v_htmlescape"]
 
 # Engine Features
 builtins = []
 macros = []
-multi-template = []
-adjacent-loop-items = []
+multi_template = []
+adjacent_loop_items = []
 fuel = []
 
 # Extra Filters
@@ -46,7 +46,11 @@ internal_debug = []
 unstable_machinery = ["internal_debug"]
 unstable_machinery_serde = ["unstable_machinery", "serde/derive"]
 
-# kiln specific
+# Incorrectly named features to be removed in 1.x
+multi-template = ["multi_template"]
+adjacent-loop-items = ["adjacent_loop_items"]
+
+# kiln specific features, @todo remove this later
 kiln = ["unstable_machinery_serde", "json", "urlencode", "multi-template", "internal_debug"]
 
 [dependencies]

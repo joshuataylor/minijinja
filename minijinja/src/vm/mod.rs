@@ -32,7 +32,7 @@ mod macro_object;
 mod state;
 
 // the cost of a single include against the stack limit.
-#[cfg(feature = "multi-template")]
+#[cfg(feature = "multi_template")]
 const INCLUDE_RECURSION_COST: usize = 10;
 
 // the cost of a single macro call against the stack limit.
@@ -85,25 +85,24 @@ impl<'env> Vm<'env> {
         out: &mut Output,
         auto_escape: AutoEscape,
     ) -> Result<Option<Value>, Error> {
-        value::with_value_optimization(|| {
-            self.eval_state(
-                &mut State {
-                    env: self.env,
-                    ctx: Context::new(Frame::new(root)),
-                    current_block: None,
-                    current_call: None,
-                    auto_escape,
-                    instructions,
-                    blocks: prepare_blocks(blocks),
-                    loaded_templates: BTreeSet::new(),
-                    #[cfg(feature = "macros")]
-                    macros: Arc::new(Vec::new()),
-                    #[cfg(feature = "fuel")]
-                    fuel_tracker: self.env.fuel().map(FuelTracker::new),
-                },
-                out,
-            )
-        })
+        let _guard = value::value_optimization();
+        self.eval_state(
+            &mut State {
+                env: self.env,
+                ctx: Context::new(Frame::new(root)),
+                current_block: None,
+                current_call: None,
+                auto_escape,
+                instructions,
+                blocks: prepare_blocks(blocks),
+                loaded_templates: BTreeSet::new(),
+                #[cfg(feature = "macros")]
+                macros: Arc::new(Vec::new()),
+                #[cfg(feature = "fuel")]
+                fuel_tracker: self.env.fuel().map(FuelTracker::new),
+            },
+            out,
+        )
     }
 
     /// Evaluate a macro in a state.
@@ -117,29 +116,27 @@ impl<'env> Vm<'env> {
         state: &State,
         args: Vec<Value>,
     ) -> Result<Option<Value>, Error> {
-        value::with_value_optimization(|| {
-            let mut ctx = Context::new(Frame::new(root));
-            ok!(ctx.incr_depth(state.ctx.depth() + MACRO_RECURSION_COST));
-            self.eval_impl(
-                &mut State {
-                    env: self.env,
-                    ctx,
-                    current_block: None,
-                    current_call: None,
-                    auto_escape: state.auto_escape(),
-                    instructions,
-                    blocks: BTreeMap::default(),
-                    loaded_templates: BTreeSet::new(),
-                    #[cfg(feature = "macros")]
-                    macros: state.macros.clone(),
-                    #[cfg(feature = "fuel")]
-                    fuel_tracker: state.fuel_tracker.clone(),
-                },
-                out,
-                Stack::from(args),
-                pc,
-            )
-        })
+        let mut ctx = Context::new(Frame::new(root));
+        ok!(ctx.incr_depth(state.ctx.depth() + MACRO_RECURSION_COST));
+        self.eval_impl(
+            &mut State {
+                env: self.env,
+                ctx,
+                current_block: None,
+                current_call: None,
+                auto_escape: state.auto_escape(),
+                instructions,
+                blocks: BTreeMap::default(),
+                loaded_templates: BTreeSet::new(),
+                #[cfg(feature = "macros")]
+                macros: state.macros.clone(),
+                #[cfg(feature = "fuel")]
+                fuel_tracker: state.fuel_tracker.clone(),
+            },
+            out,
+            Stack::from(args),
+            pc,
+        )
     }
 
     /// This is the actual evaluation loop that works with a specific context.
@@ -168,7 +165,7 @@ impl<'env> Vm<'env> {
         // If we are extending we are holding the instructions of the target parent
         // template here.  This is used to detect multiple extends and the evaluation
         // uses these instructions when RenderParent is evaluated.
-        #[cfg(feature = "multi-template")]
+        #[cfg(feature = "multi_template")]
         let mut parent_instructions = None;
 
         macro_rules! recurse_loop {
@@ -253,7 +250,16 @@ impl<'env> Vm<'env> {
                 }
                 Instruction::GetAttr(name) => {
                     a = stack.pop();
-                    stack.push(ctx_ok!(a.get_attr(name)));
+                    // This is a common enough operation that it's interesting to consider a fast
+                    // path here.  This is slightly faster than the regular attr lookup because we
+                    // do not need to pass down the error object for the more common success case.
+                    // Only when we cannot look up something, we start to consider the undefined
+                    // special case.
+                    stack.push(match a.get_attr_fast(name) {
+                        Some(value) => value,
+                        None if a.is_undefined() => bail!(Error::from(ErrorKind::UndefinedError)),
+                        None => Value::UNDEFINED,
+                    });
                 }
                 Instruction::GetItem => {
                     a = stack.pop();
@@ -372,7 +378,7 @@ impl<'env> Vm<'env> {
                     l.object.idx.fetch_add(1, Ordering::Relaxed);
 
                     let next = {
-                        #[cfg(feature = "adjacent-loop-items")]
+                        #[cfg(feature = "adjacent_loop_items")]
                         {
                             let mut triple = l.object.value_triple.lock().unwrap();
                             triple.0 = triple.1.take();
@@ -380,7 +386,7 @@ impl<'env> Vm<'env> {
                             triple.2 = l.iterator.next();
                             triple.1.clone()
                         }
-                        #[cfg(not(feature = "adjacent-loop-items"))]
+                        #[cfg(not(feature = "adjacent_loop_items"))]
                         {
                             l.iterator.next()
                         }
@@ -424,7 +430,7 @@ impl<'env> Vm<'env> {
                         stack.pop();
                     }
                 }
-                #[cfg(feature = "multi-template")]
+                #[cfg(feature = "multi_template")]
                 Instruction::CallBlock(name) => {
                     if parent_instructions.is_none() {
                         let old_block = state.current_block;
@@ -579,7 +585,7 @@ impl<'env> Vm<'env> {
                 // However for the common case this is convenient because it
                 // lets you put some imports there and for as long as you do not
                 // create name clashes this works fine.
-                #[cfg(feature = "multi-template")]
+                #[cfg(feature = "multi_template")]
                 Instruction::LoadBlocks => {
                     a = stack.pop();
                     if parent_instructions.is_some() {
@@ -591,7 +597,7 @@ impl<'env> Vm<'env> {
                     parent_instructions = Some(ctx_ok!(self.load_blocks(a, state)));
                     out.begin_capture(CaptureMode::Discard);
                 }
-                #[cfg(feature = "multi-template")]
+                #[cfg(feature = "multi_template")]
                 Instruction::RenderParent => {
                     // when an extends statement appears in a template, the last instruction
                     // in that template is the `RenderParent` opcode.  However there is no
@@ -613,12 +619,12 @@ impl<'env> Vm<'env> {
                     pc = 0;
                     continue;
                 }
-                #[cfg(feature = "multi-template")]
+                #[cfg(feature = "multi_template")]
                 Instruction::Include(ignore_missing) => {
                     a = stack.pop();
                     ctx_ok!(self.perform_include(a, state, out, *ignore_missing));
                 }
-                #[cfg(feature = "multi-template")]
+                #[cfg(feature = "multi_template")]
                 Instruction::ExportLocals => {
                     let locals = state.ctx.current_locals();
                     let mut module = value_map_with_capacity(locals.len());
@@ -640,7 +646,7 @@ impl<'env> Vm<'env> {
         Ok(stack.try_pop())
     }
 
-    #[cfg(feature = "multi-template")]
+    #[cfg(feature = "multi_template")]
     fn perform_include(
         &self,
         name: Value,
@@ -769,7 +775,7 @@ impl<'env> Vm<'env> {
         }
     }
 
-    #[cfg(feature = "multi-template")]
+    #[cfg(feature = "multi_template")]
     fn load_blocks(
         &self,
         name: Value,
@@ -851,7 +857,7 @@ impl<'env> Vm<'env> {
                     idx: AtomicUsize::new(!0usize),
                     len,
                     depth,
-                    #[cfg(feature = "adjacent-loop-items")]
+                    #[cfg(feature = "adjacent_loop_items")]
                     value_triple: Mutex::new((None, None, iterator.next())),
                     last_changed_value: Mutex::default(),
                 }),
